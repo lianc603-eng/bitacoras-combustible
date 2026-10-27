@@ -14,10 +14,11 @@ st.set_page_config(
 )
 
 st.title("⛽ Generador Automatizado de Bitácoras de Combustible")
-st.caption("Distribución balanceada de consumos por vehículo | Dirección de Desarrollo Urbano y Medio Ambiente")
+st.caption("Dirección de Desarrollo Urbano y Medio Ambiente | H. Ayuntamiento de Campeche")
 
 # --- CATÁLOGO BASE DE VEHÍCULOS ---
-# Nota: lleva_odometro=False llenará automáticamente con "---" las columnas de Odómetro y Rendimiento
+# Jetta, RAM y Motos tienen lleva_odometro=False (coloca "---" en Odómetro y Rendimiento)
+# Jimny tiene lleva_odometro=True (deja las celdas en blanco para odómetro real)
 VEHICULOS_DEFAULT = [
     {"direccion": "MEDIO AMBIENTE", "placa": "DKR456B", "tipo": "JIMNY GLX TA, 5 PUERTAS 2025", "combustible": "PREMIUM", "importe_total": 5000.00, "tope_diario": 800.0, "anio": "2025", "lleva_odometro": True, "activo": True},
     {"direccion": "MEDIO AMBIENTE", "placa": "DFT-565-C", "tipo": "JETTA", "combustible": "MAGNA", "importe_total": 5300.00, "tope_diario": 1000.0, "anio": "", "lleva_odometro": False, "activo": True},
@@ -43,13 +44,15 @@ with st.sidebar:
     st.header("⚙️ Configuración del Periodo")
     fecha_ini = st.date_input("Inicio del periodo", datetime.date(2026, 9, 26))
     fecha_fin = st.date_input("Fin del periodo", datetime.date(2026, 10, 25))
+    
     fecha_entrega_txt = st.text_input("Fecha en Bitácora (Fila 27)", "25 DE OCTUBRE DE 2026")
     destino_txt = st.text_input("Destino o Uso (Fila 28)", "RECORRIDOS OPERATIVOS, SUPERVISIÓN E INSPECCIÓN EN EL MUNICIPIO")
-    responsable_txt = st.text_input("Responsable sugerido (Fila J)", "OPERADOR ASIGNADO")
+    responsable_txt = st.text_input("Responsable Operativo sugerido", "OPERADOR ASIGNADO")
+    
     st.markdown("---")
     uploaded_file = st.file_uploader("Subir '1.FORMATO BITACORA 2024 - 2027.xlsx'", type=["xlsx"])
 
-# Días autorizados: Lunes(0), Martes(1), Jueves(3), Viernes(4)
+# Días autorizados: Lunes (0), Martes (1), Jueves (3), Viernes (4)
 dias_autorizados = [0, 1, 3, 4]
 fechas_disponibles = []
 cur = fecha_ini
@@ -59,7 +62,7 @@ while cur <= fecha_fin:
     cur += datetime.timedelta(days=1)
 
 with st.sidebar:
-    st.info(f"📅 **{len(fechas_disponibles)} fechas hábiles** (L, M, J, V)")
+    st.info(f"📅 **{len(fechas_disponibles)} fechas autorizadas** (L, M, J, V)")
 
 # --- TABLA EDITABLE ---
 st.subheader("1. Cuotas Asignadas y Parámetros")
@@ -67,7 +70,7 @@ df_edit = st.data_editor(
     pd.DataFrame(VEHICULOS_DEFAULT),
     column_config={
         "activo": st.column_config.CheckboxColumn("Generar", default=True),
-        "lleva_odometro": st.column_config.CheckboxColumn("Registra Odómetro", help="Si está desmarcado, se llenará con '---' en Odómetro y Rendimiento"),
+        "lleva_odometro": st.column_config.CheckboxColumn("Registra Odómetro", help="Desmarcado llena con '---' en Odómetro y Rendimiento"),
         "importe_total": st.column_config.NumberColumn("Presupuesto ($)", format="$%.2f"),
         "tope_diario": st.column_config.NumberColumn("Tope Día ($)", format="$%.2f"),
         "combustible": st.column_config.SelectboxColumn("Combustible", options=["MAGNA", "PREMIUM", "DIESEL"])
@@ -76,15 +79,19 @@ df_edit = st.data_editor(
     num_rows="dynamic"
 )
 
+# Métricas resumidas
 tot_magna = df_edit[df_edit["activo"] & (df_edit["combustible"] == "MAGNA")]["importe_total"].sum()
 tot_prem = df_edit[df_edit["activo"] & (df_edit["combustible"] == "PREMIUM")]["importe_total"].sum()
-c1, c2, c3 = st.columns(3)
-c1.metric("Total Magna (CD)", f"${tot_magna:,.2f}")
-c2.metric("Total Premium (Vales)", f"${tot_prem:,.2f}")
-c3.metric("Total General", f"${tot_magna + tot_prem:,.2f}")
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Magna (CD)", f"${tot_magna:,.2f}")
+col2.metric("Total Premium (Vales)", f"${tot_prem:,.2f}")
+col3.metric("Total General", f"${tot_magna + tot_prem:,.2f}")
 
-# --- BALANCEO DE CARGAS ---
+# --- BALANCEO INTELIGENTE DE CARGAS (SIN DESCOMPENSACIÓN) ---
 def balancear_importes(total, max_day):
+    """
+    Distribuye el monto mensual en montos balanceados (ej. Jimny $5000 -> 800, 600, 800, 600...)
+    """
     n_cargas = math.ceil(total / max_day)
     if n_cargas > 11:
         n_cargas = 11
@@ -146,7 +153,7 @@ def planificar_cargas_vehiculo(total_monto, tope_dia, fechas, combustible):
     
     cargas = []
     for f, imp in zip(fechas_asignadas, importes):
-        lits = round(imp / precio_unit, 2)
+        lits = round(imp / precio_unit, 3)
         cargas.append({
             "fecha": f.strftime("%d/%m/%Y"),
             "litros": lits,
@@ -157,7 +164,7 @@ def planificar_cargas_vehiculo(total_monto, tope_dia, fechas, combustible):
 
 # --- VISTA PREVIA ---
 st.markdown("---")
-st.subheader("2. Vista Previa de Recargas")
+st.subheader("2. Vista Previa de Recargas Balanceadas")
 preview_data = []
 for _, r in df_edit.iterrows():
     if not r["activo"]: continue
@@ -173,30 +180,43 @@ for _, r in df_edit.iterrows():
     })
 st.dataframe(pd.DataFrame(preview_data), use_container_width=True)
 
-# --- ESCRITURA EN EXCEL ---
+# --- ESCRITURA PRECISA EN FORMATO EXCEL ---
 def escribir_hoja_bitacora(ws, datos, cargas):
-    ws["B9"] = f"N° ECONOMICO: {datos.get('num_eco', '')}"
+    centro = Alignment(horizontal="center", vertical="center")
+    
+    # 1. Encabezados de la Fila 9 (Dentro de sus recuadros correctos)
+    num_eco = datos.get('num_eco', '')
+    ws["B9"] = f"N° ECONOMICO: {num_eco}" if num_eco else "N° ECONOMICO:"
     ws["E9"] = f"MARCA Y TIPO: {datos.get('tipo', '')}"
     ws["I9"] = f"AÑO: {datos.get('anio', '')}"
     ws["L9"] = f"PLACAS: {datos.get('placa', '')}"
     
-    centro_alineacion = Alignment(horizontal="center", vertical="center")
     lleva_odometro = datos.get("lleva_odometro", False)
     
+    # 2. Renglones de carga (Filas 14 a 24)
+    # Mapeo exacto:
+    # B: FECHA
+    # C: LITROS (C14:D14 combinadas)
+    # E: COSTO DE LITRO
+    # F: IMPORTE
+    # G: ODOMETRO INICIO
+    # H: ODOMETRO FINAL
+    # I: RENDIMIENTO
+    # J: RESPONSABLE OPERATIVO (J14:K14 combinadas)
     for idx, c in enumerate(cargas):
         r = 14 + idx
         if r > 24: break
+        
         ws[f"B{r}"] = c["fecha"]
         ws[f"C{r}"] = c["litros"]
-        ws[f"E{r}"] = c["precio_unit"]
-        ws[f"F{r}"] = c["importe"]
+        ws[f"E{r}"] = c["precio_unit"]   # Columna E = Costo de Litro
+        ws[f"F{r}"] = c["importe"]       # Columna F = Importe en Pesos
         
-        # Validación de odómetro y rendimiento
         if not lleva_odometro:
-            for col_letter in ["G", "H", "I"]:
-                cell = ws[f"{col_letter}{r}"]
+            for col_letra in ["G", "H", "I"]:
+                cell = ws[f"{col_letra}{r}"]
                 cell.value = "---"
-                cell.alignment = centro_alineacion
+                cell.alignment = centro
         else:
             ws[f"G{r}"] = ""
             ws[f"H{r}"] = ""
@@ -204,12 +224,16 @@ def escribir_hoja_bitacora(ws, datos, cargas):
             
         ws[f"J{r}"] = responsable_txt
         
+    # 3. Totales (Fila 25)
     ws["C25"] = "=SUM(C14:C24)"
+    ws["E25"] = "TOTAL"
     ws["F25"] = "=SUM(F14:F24)"
+    
+    # 4. Pie de página
     ws["B27"] = f"BITÁCORA CORRESPONDIENTE A LA ENTREGA DEL DÍA: {fecha_entrega_txt}"
     ws["B28"] = f"DESTINO O USO DEL VEHICULO: {destino_txt}"
 
-# --- GENERADOR DE EXCEL ---
+# --- GENERADOR DE DESCARGA ---
 st.markdown("---")
 st.subheader("3. Descargar Formatos Oficiales")
 
@@ -227,12 +251,14 @@ if st.button("🚀 Generar Libro Excel con Cargas Balanceadas"):
     
     for _, row in df_edit.iterrows():
         if not row["activo"]: continue
+        
         cargas = planificar_cargas_vehiculo(
             row["importe_total"],
             row["tope_diario"],
             fechas_disponibles,
             row["combustible"]
         )
+        
         ws_nueva = wb.copy_worksheet(ws_base)
         ws_nueva.title = str(row["placa"]).replace("-", "").strip()[:31]
         escribir_hoja_bitacora(ws_nueva, row.to_dict(), cargas)
@@ -241,7 +267,7 @@ if st.button("🚀 Generar Libro Excel con Cargas Balanceadas"):
     wb.save(buffer)
     buffer.seek(0)
     
-    st.success("✅ ¡Bitácoras balanceadas generadas con éxito!")
+    st.success("✅ ¡Bitácoras generadas y alineadas con éxito!")
     st.download_button(
         label="📥 Descargar Libro Excel (Bitácoras Balanceadas)",
         data=buffer,

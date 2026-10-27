@@ -51,6 +51,8 @@ PRECIOS = {
     "DIESEL": 27.00
 }
 
+NOMBRES_DIAS = {0: "Lunes", 1: "Martes", 3: "Jueves", 4: "Viernes"}
+
 # --- BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Estado de la Plantilla")
@@ -66,6 +68,33 @@ with st.sidebar:
     fecha_ini = st.date_input("Inicio del periodo", datetime.date(2026, 9, 26))
     fecha_fin = st.date_input("Fin del periodo", datetime.date(2026, 10, 25))
     
+    # Obtener todas las fechas teóricas hábiles (Lunes, Martes, Jueves, Viernes)
+    dias_autorizados = [0, 1, 3, 4]
+    fechas_teoricas = []
+    cur = fecha_ini
+    while cur <= fecha_fin:
+        if cur.weekday() in dias_autorizados:
+            fechas_teoricas.append(cur)
+        cur += datetime.timedelta(days=1)
+        
+    # Selector de días no laborados / inhábiles
+    st.markdown("---")
+    st.header("🚫 Días Inhábiles / No Laborados")
+    opciones_dias = [f"{d.strftime('%Y-%m-%d')} ({NOMBRES_DIAS[d.weekday()]})" for d in fechas_teoricas]
+    dias_inhabiles_seleccionados = st.multiselect(
+        "Selecciona días a excluir del calendario:",
+        options=opciones_dias,
+        help="Los días seleccionados no recibirán ninguna recarga de combustible."
+    )
+    
+    # Filtrar fechas finales disponibles
+    fechas_excluidas_set = {op.split(" ")[0] for op in dias_inhabiles_seleccionados}
+    fechas_disponibles = [d for d in fechas_teoricas if d.strftime("%Y-%m-%d") not in fechas_excluidas_set]
+    
+    st.info(f"📅 **{len(fechas_disponibles)} fechas activas** para asignación de recargas.")
+
+    st.markdown("---")
+    st.header("📝 Textos del Formato")
     fecha_entrega_txt = st.text_input("Fecha en Bitácora (Fila 27)", "25 DE OCTUBRE DE 2026")
     destino_txt = st.text_input("Destino o Uso (Fila 28)", "RECORRIDOS OPERATIVOS, SUPERVISIÓN E INSPECCIÓN EN EL MUNICIPIO")
     responsable_txt = st.text_input("Responsable Operativo sugerido", "OPERADOR ASIGNADO")
@@ -75,17 +104,10 @@ with st.sidebar:
     km_inicial_jimny = st.number_input("Odómetro Inicial (Último Registro)", value=40128, step=1)
     rendimiento_jimny = st.number_input("Rendimiento (km/l)", value=14, step=1)
 
-# Días autorizados: Lunes (0), Martes (1), Jueves (3), Viernes (4)
-dias_autorizados = [0, 1, 3, 4]
-fechas_disponibles = []
-cur = fecha_ini
-while cur <= fecha_fin:
-    if cur.weekday() in dias_autorizados:
-        fechas_disponibles.append(cur)
-    cur += datetime.timedelta(days=1)
-
-with st.sidebar:
-    st.info(f"📅 **{len(fechas_disponibles)} fechas autorizadas** (L, M, J, V)")
+# Validación de seguridad
+if not fechas_disponibles:
+    st.error("⚠️ Se han excluido todas las fechas del periodo. Desmarca al menos un día hábil en la barra lateral.")
+    st.stop()
 
 # --- TABLA EDITABLE ---
 st.subheader("1. Cuotas Asignadas y Parámetros")
@@ -186,7 +208,7 @@ preview_data = []
 for _, r in df_edit.iterrows():
     if not r["activo"]: continue
     c_plan = planificar_cargas_vehiculo(r["importe_total"], r["tope_diario"], fechas_disponibles, r["combustible"])
-    desglose_txt = " + ".join([f"${c['importe']:,.2f}" for c in c_plan])
+    desglose_txt = " + ".join([f"${c['importe']:,.2f} ({c['fecha']})" for c in c_plan])
     
     detalle_odo = "---"
     if r.get("lleva_odometro", False):
@@ -199,7 +221,7 @@ for _, r in df_edit.iterrows():
         "Cargas": len(c_plan),
         "Total": f"${r['importe_total']:,.2f}",
         "Odómetro y Rendimiento": detalle_odo,
-        "Desglose de recargas ($)": desglose_txt
+        "Fechas e Importes asignados": desglose_txt
     })
 st.dataframe(pd.DataFrame(preview_data), use_container_width=True)
 
@@ -268,8 +290,7 @@ def escribir_hoja_bitacora(ws, datos, cargas):
         # I: Responsable Operativo
         ws[f"I{r}"] = responsable_txt
         
-    # 3. TOTALES (Fila 25)
-    # Sin suma en litros: celda C25 en blanco
+    # 3. TOTALES (Fila 25: Sin suma de litros, solo importe en E25)
     ws["C25"] = ""
     ws["D25"] = "TOTAL"
     ws["E25"] = "=SUM(E14:E24)"
@@ -313,7 +334,7 @@ if st.button("🚀 Generar Libro Excel con Cargas Balanceadas"):
     wb.save(buffer)
     buffer.seek(0)
     
-    st.success("✅ ¡Bitácoras generadas exitosamente!")
+    st.success("✅ ¡Bitácoras generadas considerando los días hábiles seleccionados!")
     st.download_button(
         label="📥 Descargar Libro Excel (Bitácoras Balanceadas)",
         data=buffer,

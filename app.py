@@ -17,8 +17,6 @@ st.title("⛽ Generador Automatizado de Bitácoras de Combustible")
 st.caption("Dirección de Desarrollo Urbano y Medio Ambiente | H. Ayuntamiento de Campeche")
 
 # --- CATÁLOGO BASE DE VEHÍCULOS ---
-# Jetta, RAM y Motos tienen lleva_odometro=False (coloca "---" en Odómetro y Rendimiento)
-# Jimny tiene lleva_odometro=True (deja las celdas en blanco para odómetro real)
 VEHICULOS_DEFAULT = [
     {"direccion": "MEDIO AMBIENTE", "placa": "DKR456B", "tipo": "JIMNY GLX TA, 5 PUERTAS 2025", "combustible": "PREMIUM", "importe_total": 5000.00, "tope_diario": 800.0, "anio": "2025", "lleva_odometro": True, "activo": True},
     {"direccion": "MEDIO AMBIENTE", "placa": "DFT-565-C", "tipo": "JETTA", "combustible": "MAGNA", "importe_total": 5300.00, "tope_diario": 1000.0, "anio": "", "lleva_odometro": False, "activo": True},
@@ -50,7 +48,7 @@ with st.sidebar:
     responsable_txt = st.text_input("Responsable Operativo sugerido", "OPERADOR ASIGNADO")
     
     st.markdown("---")
-    uploaded_file = st.file_uploader("Subir '1.FORMATO BITACORA 2024 - 2027.xlsx'", type=["xlsx"])
+    uploaded_file = st.file_uploader("Subir Plantilla Excel (.xlsx)", type=["xlsx"])
 
 # Días autorizados: Lunes (0), Martes (1), Jueves (3), Viernes (4)
 dias_autorizados = [0, 1, 3, 4]
@@ -79,7 +77,6 @@ df_edit = st.data_editor(
     num_rows="dynamic"
 )
 
-# Métricas resumidas
 tot_magna = df_edit[df_edit["activo"] & (df_edit["combustible"] == "MAGNA")]["importe_total"].sum()
 tot_prem = df_edit[df_edit["activo"] & (df_edit["combustible"] == "PREMIUM")]["importe_total"].sum()
 col1, col2, col3 = st.columns(3)
@@ -87,11 +84,8 @@ col1.metric("Total Magna (CD)", f"${tot_magna:,.2f}")
 col2.metric("Total Premium (Vales)", f"${tot_prem:,.2f}")
 col3.metric("Total General", f"${tot_magna + tot_prem:,.2f}")
 
-# --- BALANCEO INTELIGENTE DE CARGAS (SIN DESCOMPENSACIÓN) ---
+# --- BALANCEO DE CARGAS ---
 def balancear_importes(total, max_day):
-    """
-    Distribuye el monto mensual en montos balanceados (ej. Jimny $5000 -> 800, 600, 800, 600...)
-    """
     n_cargas = math.ceil(total / max_day)
     if n_cargas > 11:
         n_cargas = 11
@@ -153,10 +147,8 @@ def planificar_cargas_vehiculo(total_monto, tope_dia, fechas, combustible):
     
     cargas = []
     for f, imp in zip(fechas_asignadas, importes):
-        lits = round(imp / precio_unit, 3)
         cargas.append({
             "fecha": f.strftime("%d/%m/%Y"),
-            "litros": lits,
             "precio_unit": precio_unit,
             "importe": imp
         })
@@ -180,60 +172,70 @@ for _, r in df_edit.iterrows():
     })
 st.dataframe(pd.DataFrame(preview_data), use_container_width=True)
 
-# --- ESCRITURA PRECISA EN FORMATO EXCEL ---
+# --- ESCRITURA EN EXCEL (CON FÓRMULA DE LITROS: =E/D) ---
 def escribir_hoja_bitacora(ws, datos, cargas):
     centro = Alignment(horizontal="center", vertical="center")
+    derecha = Alignment(horizontal="right", vertical="center")
     
-    # 1. Encabezados de la Fila 9 (Dentro de sus recuadros correctos)
+    # 1. ENCABEZADO (Fila 9)
     num_eco = datos.get('num_eco', '')
-    ws["B9"] = f"N° ECONOMICO: {num_eco}" if num_eco else "N° ECONOMICO:"
-    ws["E9"] = f"MARCA Y TIPO: {datos.get('tipo', '')}"
-    ws["I9"] = f"AÑO: {datos.get('anio', '')}"
-    ws["L9"] = f"PLACAS: {datos.get('placa', '')}"
+    ws["B9"] = f"N° ECONOMICO: {num_eco}" if num_eco else "N° ECONOMICO: "
+    ws["D9"] = f"MARCA Y TIPO:  {datos.get('tipo', '')}"
+    ws["H9"] = f"AÑO: {datos.get('anio', '')}"
+    ws["K9"] = f"PLACAS: {datos.get('placa', '')}"
     
     lleva_odometro = datos.get("lleva_odometro", False)
     
-    # 2. Renglones de carga (Filas 14 a 24)
-    # Mapeo exacto:
-    # B: FECHA
-    # C: LITROS (C14:D14 combinadas)
-    # E: COSTO DE LITRO
-    # F: IMPORTE
-    # G: ODOMETRO INICIO
-    # H: ODOMETRO FINAL
-    # I: RENDIMIENTO
-    # J: RESPONSABLE OPERATIVO (J14:K14 combinadas)
+    # 2. RENGLONES DE CARGA (Filas 14 a 24)
     for idx, c in enumerate(cargas):
         r = 14 + idx
         if r > 24: break
         
+        # B: Fecha
         ws[f"B{r}"] = c["fecha"]
-        ws[f"C{r}"] = c["litros"]
-        ws[f"E{r}"] = c["precio_unit"]   # Columna E = Costo de Litro
-        ws[f"F{r}"] = c["importe"]       # Columna F = Importe en Pesos
         
+        # D: Costo de Litro
+        cell_costo = ws[f"D{r}"]
+        cell_costo.value = c["precio_unit"]
+        cell_costo.number_format = '0.00'
+        
+        # E: Importe ($)
+        cell_importe = ws[f"E{r}"]
+        cell_importe.value = c["importe"]
+        cell_importe.number_format = '#,##0.00'
+        
+        # C: LITROS = Importe / Costo de Litro (=E{r}/D{r})
+        cell_litros = ws[f"C{r}"]
+        cell_litros.value = f"=E{r}/D{r}"
+        cell_litros.number_format = '0.00'
+        cell_litros.alignment = derecha
+        
+        # F, G, H: Odómetros y Rendimiento
         if not lleva_odometro:
-            for col_letra in ["G", "H", "I"]:
+            for col_letra in ["F", "G", "H"]:
                 cell = ws[f"{col_letra}{r}"]
                 cell.value = "---"
                 cell.alignment = centro
         else:
+            ws[f"F{r}"] = ""
             ws[f"G{r}"] = ""
             ws[f"H{r}"] = ""
-            ws[f"I{r}"] = ""
             
-        ws[f"J{r}"] = responsable_txt
+        # I: Responsable Operativo
+        ws[f"I{r}"] = responsable_txt
         
-    # 3. Totales (Fila 25)
+    # 3. TOTALES (Fila 25)
     ws["C25"] = "=SUM(C14:C24)"
-    ws["E25"] = "TOTAL"
-    ws["F25"] = "=SUM(F14:F24)"
+    ws["C25"].number_format = '0.000'
+    ws["D25"] = "TOTAL"
+    ws["E25"] = "=SUM(E14:E24)"
+    ws["E25"].number_format = '$#,##0.00'
     
-    # 4. Pie de página
+    # 4. PIE DE PÁGINA
     ws["B27"] = f"BITÁCORA CORRESPONDIENTE A LA ENTREGA DEL DÍA: {fecha_entrega_txt}"
     ws["B28"] = f"DESTINO O USO DEL VEHICULO: {destino_txt}"
 
-# --- GENERADOR DE DESCARGA ---
+# --- GENERADOR DE EXCEL ---
 st.markdown("---")
 st.subheader("3. Descargar Formatos Oficiales")
 
@@ -242,10 +244,13 @@ if st.button("🚀 Generar Libro Excel con Cargas Balanceadas"):
         wb = openpyxl.load_workbook(uploaded_file)
     else:
         try:
-            wb = openpyxl.load_workbook("1.FORMATO BITACORA 2024 - 2027.xlsx")
+            wb = openpyxl.load_workbook("1.FORMATO BITACORA 2024 - 2027 OK (1).xlsx")
         except FileNotFoundError:
-            st.error("No se encontró '1.FORMATO BITACORA 2024 - 2027.xlsx' en la raíz. Por favor súbelo en la barra lateral.")
-            st.stop()
+            try:
+                wb = openpyxl.load_workbook("1.FORMATO BITACORA 2024 - 2027.xlsx")
+            except FileNotFoundError:
+                st.error("Por favor sube la plantilla de Excel en la barra lateral izquierda.")
+                st.stop()
             
     ws_base = wb["BITACORA VEHICULOS"]
     
@@ -267,7 +272,7 @@ if st.button("🚀 Generar Libro Excel con Cargas Balanceadas"):
     wb.save(buffer)
     buffer.seek(0)
     
-    st.success("✅ ¡Bitácoras generadas y alineadas con éxito!")
+    st.success("✅ ¡Bitácoras generadas con fórmulas dinámicas en Litros e Importes!")
     st.download_button(
         label="📥 Descargar Libro Excel (Bitácoras Balanceadas)",
         data=buffer,

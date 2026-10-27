@@ -218,7 +218,7 @@ def escribir_hoja_bitacora(ws, datos, cargas):
         # C: LITROS = Importe / Costo de Litro (=E{r}/D{r})
         cell_litros = ws[f"C{r}"]
         cell_litros.value = f"=E{r}/D{r}"
-        cell_litros.number_format = '0.000'
+        cell_litros.number_format = '0.00'
         cell_litros.alignment = derecha
         
         # F (INICIO), G (FINAL), H (RENDIMIENTO)

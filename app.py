@@ -253,8 +253,6 @@ def escribir_hoja_bitacora(ws, datos, cargas):
         ws[f"I{r}"] = responsable_txt
         
     # 3. TOTALES (Fila 25)
-    ws["C25"] = "=SUM(C14:C24)"
-    ws["C25"].number_format = '0.00'
     ws["D25"] = "TOTAL"
     ws["E25"] = "=SUM(E14:E24)"
     ws["E25"].number_format = '$#,##0.00'

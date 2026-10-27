@@ -48,6 +48,11 @@ with st.sidebar:
     responsable_txt = st.text_input("Responsable Operativo sugerido", "OPERADOR ASIGNADO")
     
     st.markdown("---")
+    st.header("🚗 Parámetros Odómetro (Jimny)")
+    km_inicial_jimny = st.number_input("Odómetro Inicial (Último Registro)", value=40128, step=1)
+    rendimiento_jimny = st.number_input("Rendimiento (km/l)", value=14, step=1)
+    
+    st.markdown("---")
     uploaded_file = st.file_uploader("Subir Plantilla Excel (.xlsx)", type=["xlsx"])
 
 # Días autorizados: Lunes (0), Martes (1), Jueves (3), Viernes (4)
@@ -162,17 +167,23 @@ for _, r in df_edit.iterrows():
     if not r["activo"]: continue
     c_plan = planificar_cargas_vehiculo(r["importe_total"], r["tope_diario"], fechas_disponibles, r["combustible"])
     desglose_txt = " + ".join([f"${c['importe']:,.2f}" for c in c_plan])
+    
+    detalle_odo = "---"
+    if r.get("lleva_odometro", False):
+        km_estimado = km_inicial_jimny + round(sum(c['importe']/PRECIOS.get(r['combustible'], 26.95) for c in c_plan) * rendimiento_jimny)
+        detalle_odo = f"De {km_inicial_jimny:,} a {km_estimado:,} km ({rendimiento_jimny} km/l)"
+        
     preview_data.append({
         "Vehículo": r["tipo"],
         "Placa": r["placa"],
         "Cargas": len(c_plan),
         "Total": f"${r['importe_total']:,.2f}",
-        "Odómetro/Rendimiento": "Con datos" if r.get("lleva_odometro", False) else "---",
+        "Odómetro y Rendimiento": detalle_odo,
         "Desglose de recargas ($)": desglose_txt
     })
 st.dataframe(pd.DataFrame(preview_data), use_container_width=True)
 
-# --- ESCRITURA EN EXCEL (CON FÓRMULA DE LITROS: =E/D) ---
+# --- ESCRITURA EN EXCEL (CON FÓRMULA DE LITROS Y ODÓMETRO VINCULADO) ---
 def escribir_hoja_bitacora(ws, datos, cargas):
     centro = Alignment(horizontal="center", vertical="center")
     derecha = Alignment(horizontal="right", vertical="center")
@@ -207,26 +218,43 @@ def escribir_hoja_bitacora(ws, datos, cargas):
         # C: LITROS = Importe / Costo de Litro (=E{r}/D{r})
         cell_litros = ws[f"C{r}"]
         cell_litros.value = f"=E{r}/D{r}"
-        cell_litros.number_format = '0.00'
+        cell_litros.number_format = '0.000'
         cell_litros.alignment = derecha
         
-        # F, G, H: Odómetros y Rendimiento
+        # F (INICIO), G (FINAL), H (RENDIMIENTO)
         if not lleva_odometro:
             for col_letra in ["F", "G", "H"]:
                 cell = ws[f"{col_letra}{r}"]
                 cell.value = "---"
                 cell.alignment = centro
         else:
-            ws[f"F{r}"] = ""
-            ws[f"G{r}"] = ""
-            ws[f"H{r}"] = ""
+            # Columna H: Rendimiento fijo 14 km/l
+            cell_rend = ws[f"H{r}"]
+            cell_rend.value = f"{rendimiento_jimny} KM/L"
+            cell_rend.alignment = centro
+            
+            # Columna F: Odómetro Inicio
+            cell_ini = ws[f"F{r}"]
+            if idx == 0:
+                cell_ini.value = km_inicial_jimny
+            else:
+                # El inicio de esta carga es el final de la fila anterior
+                cell_ini.value = f"=G{r-1}"
+            cell_ini.number_format = '#,##0'
+            cell_ini.alignment = centro
+            
+            # Columna G: Odómetro Final = Inicio + (Litros * Rendimiento)
+            cell_fin = ws[f"G{r}"]
+            cell_fin.value = f"=F{r}+ROUND(C{r}*{rendimiento_jimny},0)"
+            cell_fin.number_format = '#,##0'
+            cell_fin.alignment = centro
             
         # I: Responsable Operativo
         ws[f"I{r}"] = responsable_txt
         
     # 3. TOTALES (Fila 25)
     ws["C25"] = "=SUM(C14:C24)"
-    ws["C25"].number_format = '0.000'
+    ws["C25"].number_format = '0.00'
     ws["D25"] = "TOTAL"
     ws["E25"] = "=SUM(E14:E24)"
     ws["E25"].number_format = '$#,##0.00'
@@ -272,7 +300,7 @@ if st.button("🚀 Generar Libro Excel con Cargas Balanceadas"):
     wb.save(buffer)
     buffer.seek(0)
     
-    st.success("✅ ¡Bitácoras generadas con fórmulas dinámicas en Litros e Importes!")
+    st.success("✅ ¡Bitácoras generadas con odómetro dinámico para Jimny y '---' para el resto!")
     st.download_button(
         label="📥 Descargar Libro Excel (Bitácoras Balanceadas)",
         data=buffer,

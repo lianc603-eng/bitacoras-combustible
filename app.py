@@ -3,6 +3,7 @@ import pandas as pd
 import openpyxl
 from openpyxl.styles import Alignment
 import io
+import os
 import math
 import datetime
 
@@ -15,6 +16,19 @@ st.set_page_config(
 
 st.title("⛽ Generador Automatizado de Bitácoras de Combustible")
 st.caption("Dirección de Desarrollo Urbano y Medio Ambiente | H. Ayuntamiento de Campeche")
+
+# --- ARCHIVO BASE PERMANENTE ---
+RUTAS_PLANTILLA_LOCAL = [
+    "plantilla.xlsx",
+    "1.FORMATO BITACORA 2024 - 2027 OK (1).xlsx",
+    "1.FORMATO BITACORA 2024 - 2027.xlsx"
+]
+
+plantilla_detectada = None
+for ruta in RUTAS_PLANTILLA_LOCAL:
+    if os.path.exists(ruta):
+        plantilla_detectada = ruta
+        break
 
 # --- CATÁLOGO BASE DE VEHÍCULOS ---
 VEHICULOS_DEFAULT = [
@@ -39,7 +53,16 @@ PRECIOS = {
 
 # --- BARRA LATERAL ---
 with st.sidebar:
-    st.header("⚙️ Configuración del Periodo")
+    st.header("⚙️ Estado de la Plantilla")
+    if plantilla_detectada:
+        st.success(f"✅ Plantilla detectada: `{os.path.basename(plantilla_detectada)}`")
+    else:
+        st.warning("⚠️ No se encontró plantilla en el servidor. Sube una a continuación:")
+
+    uploaded_file = st.file_uploader("Reemplazar plantilla (opcional)", type=["xlsx"])
+    
+    st.markdown("---")
+    st.header("📅 Configuración del Periodo")
     fecha_ini = st.date_input("Inicio del periodo", datetime.date(2026, 9, 26))
     fecha_fin = st.date_input("Fin del periodo", datetime.date(2026, 10, 25))
     
@@ -48,12 +71,9 @@ with st.sidebar:
     responsable_txt = st.text_input("Responsable Operativo sugerido", "OPERADOR ASIGNADO")
     
     st.markdown("---")
-    st.header("🚗 Parámetros Odómetro (Jimny)")
+    st.header("🚗 Odómetro (Jimny)")
     km_inicial_jimny = st.number_input("Odómetro Inicial (Último Registro)", value=40128, step=1)
     rendimiento_jimny = st.number_input("Rendimiento (km/l)", value=14, step=1)
-    
-    st.markdown("---")
-    uploaded_file = st.file_uploader("Subir Plantilla Excel (.xlsx)", type=["xlsx"])
 
 # Días autorizados: Lunes (0), Martes (1), Jueves (3), Viernes (4)
 dias_autorizados = [0, 1, 3, 4]
@@ -183,7 +203,7 @@ for _, r in df_edit.iterrows():
     })
 st.dataframe(pd.DataFrame(preview_data), use_container_width=True)
 
-# --- ESCRITURA EN EXCEL (CON FÓRMULA DE LITROS Y ODÓMETRO VINCULADO) ---
+# --- ESCRITURA EN EXCEL ---
 def escribir_hoja_bitacora(ws, datos, cargas):
     centro = Alignment(horizontal="center", vertical="center")
     derecha = Alignment(horizontal="right", vertical="center")
@@ -228,22 +248,18 @@ def escribir_hoja_bitacora(ws, datos, cargas):
                 cell.value = "---"
                 cell.alignment = centro
         else:
-            # Columna H: Rendimiento fijo 14 km/l
             cell_rend = ws[f"H{r}"]
             cell_rend.value = f"{rendimiento_jimny} KM/L"
             cell_rend.alignment = centro
             
-            # Columna F: Odómetro Inicio
             cell_ini = ws[f"F{r}"]
             if idx == 0:
                 cell_ini.value = km_inicial_jimny
             else:
-                # El inicio de esta carga es el final de la fila anterior
                 cell_ini.value = f"=G{r-1}"
             cell_ini.number_format = '#,##0'
             cell_ini.alignment = centro
             
-            # Columna G: Odómetro Final = Inicio + (Litros * Rendimiento)
             cell_fin = ws[f"G{r}"]
             cell_fin.value = f"=F{r}+ROUND(C{r}*{rendimiento_jimny},0)"
             cell_fin.number_format = '#,##0'
@@ -253,6 +269,8 @@ def escribir_hoja_bitacora(ws, datos, cargas):
         ws[f"I{r}"] = responsable_txt
         
     # 3. TOTALES (Fila 25)
+    # Sin suma en litros: celda C25 en blanco
+    ws["C25"] = ""
     ws["D25"] = "TOTAL"
     ws["E25"] = "=SUM(E14:E24)"
     ws["E25"].number_format = '$#,##0.00'
@@ -266,17 +284,14 @@ st.markdown("---")
 st.subheader("3. Descargar Formatos Oficiales")
 
 if st.button("🚀 Generar Libro Excel con Cargas Balanceadas"):
+    wb = None
     if uploaded_file is not None:
         wb = openpyxl.load_workbook(uploaded_file)
+    elif plantilla_detectada is not None:
+        wb = openpyxl.load_workbook(plantilla_detectada)
     else:
-        try:
-            wb = openpyxl.load_workbook("1.FORMATO BITACORA 2024 - 2027 OK (1).xlsx")
-        except FileNotFoundError:
-            try:
-                wb = openpyxl.load_workbook("1.FORMATO BITACORA 2024 - 2027.xlsx")
-            except FileNotFoundError:
-                st.error("Por favor sube la plantilla de Excel en la barra lateral izquierda.")
-                st.stop()
+        st.error("No se encontró ninguna plantilla precargada ni subida. Por favor sube el archivo Excel.")
+        st.stop()
             
     ws_base = wb["BITACORA VEHICULOS"]
     
@@ -298,7 +313,7 @@ if st.button("🚀 Generar Libro Excel con Cargas Balanceadas"):
     wb.save(buffer)
     buffer.seek(0)
     
-    st.success("✅ ¡Bitácoras generadas con odómetro dinámico para Jimny y '---' para el resto!")
+    st.success("✅ ¡Bitácoras generadas exitosamente!")
     st.download_button(
         label="📥 Descargar Libro Excel (Bitácoras Balanceadas)",
         data=buffer,

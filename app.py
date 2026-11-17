@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import openpyxl
-from openpyxl.styles import Alignment
 import io, os, math, datetime
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -17,14 +16,12 @@ RUTAS_PLANTILLA_LOCAL = [
 ]
 plantilla_detectada = next((r for r in RUTAS_PLANTILLA_LOCAL if os.path.exists(r)), None)
 
-# --- LISTA DE LAS 13 PLACAS ACTUALES (LAS VERDES DE TU EXCEL 2026) ---
 PLACAS_ACTIVAS = [
     "85GWU7", "86GWU7", "86GWU8", "87GWU8", "DFT-565-C", 
     "88GWU7", "88GWU8", "89GWU7", "89GWU8", "90GWU8", 
     "91GWU7", "CN-2633-B", "93GWU7"
 ]
 
-# --- TRADUCTOR DE PLACAS VIEJAS A NUEVAS ---
 MAPEO_PLACAS = {
     "85GWU7": "85GWU7", "86GWU7": "86GWU7", "43GMP6": "86GWU8", "87GWU8": "87GWU8",
     "DFT-565-C": "DFT-565-C", "88GWU7": "88GWU7", "88GWU8": "88GWU8", "49GMP6": "89GWU7",
@@ -103,9 +100,34 @@ def encontrar_filas_datos_pemex(ws):
     fila_fin = (fila_total - 1) if fila_total else fila_ini + 30
     return fila_ini, fila_fin
 
-# --- FUNCIONES BALANCEO ---
+# --- FUNCIONES DE REPARTO Y BALANCEO ---
+def repartir_bolsa_global(df, bolsa_total):
+    """Reparte una bolsa total de litros proporcionalmente según la capacidad del tanque de cada vehículo activo."""
+    df_res = df.copy()
+    activos_mask = df_res["activo"] == True
+    if not activos_mask.any() or bolsa_total <= 0:
+        df_res["total_litros"] = 0.0
+        return df_res
+
+    # Usamos el Tope Máx (capacidad de carga) como peso para repartir proporcionalmente
+    # Así las camionetas reciben más litros que las motos de forma natural
+    pesos = df_res.loc[activos_mask, "max_litros_carga"]
+    suma_pesos = pesos.sum()
+
+    asignaciones = (pesos / suma_pesos) * bolsa_total
+    asignaciones = asignaciones.round(2)
+
+    # Ajuste de centavos en el último vehículo activo para que la suma sea exacta
+    diferencia = round(bolsa_total - asignaciones.sum(), 2)
+    ultimo_idx = asignaciones.index[-1]
+    asignaciones.loc[ultimo_idx] = round(asignaciones.loc[ultimo_idx] + diferencia, 2)
+
+    df_res["total_litros"] = 0.0
+    df_res.loc[activos_mask, "total_litros"] = asignaciones
+    return df_res
+
 def balancear_litros(total_litros, max_litros):
-    """Divide el total de litros en cargas que no superen el max_litros."""
+    """Divide el total de litros en cargas alternadas (ej. 8L, 7L, 8L...) que no superen el max_litros."""
     if total_litros <= 0: return []
     n_cargas = math.ceil(total_litros / max_litros)
     
@@ -135,21 +157,30 @@ def balancear_litros(total_litros, max_litros):
     return loads
 
 def asignar_fechas_alternadas(fechas_disponibles, n_cargas):
-    """Esparce las cargas a lo largo de los días disponibles sin saturar."""
-    if n_cargas == 0: return []
-    if n_cargas >= len(fechas_disponibles): return fechas_disponibles[:n_cargas]
-    
-    # Calcula el salto entre un día y otro para que queden bien repartidos
-    step = len(fechas_disponibles) / n_cargas
-    fechas_asignadas = []
-    
-    for i in range(n_cargas):
-        idx = int(round(i * step))
-        # Asegurarnos de no salirnos del arreglo
-        idx = min(idx, len(fechas_disponibles) - 1)
-        fechas_asignadas.append(fechas_disponibles[idx])
-        
-    return fechas_asignadas
+    """
+    Esparce las cargas evitando días seguidos.
+    Prioriza días alternados (ej. Lunes y Jueves, o Martes y Viernes) antes de usar días consecutivos.
+    """
+    if n_cargas <= 0 or not fechas_disponibles:
+        return []
+    if n_cargas >= len(fechas_disponibles):
+        return fechas_disponibles[:n_cargas]
+
+    # Separar las fechas en dos grupos: índices pares (0, 2, 4...) e impares (1, 3, 5...)
+    # Como los días autorizados son L, M, J, V, tomar índices pares agarra Lunes y Jueves (nunca seguidos)
+    pares = fechas_disponibles[0::2]
+    impares = fechas_disponibles[1::2]
+
+    if n_cargas <= len(pares):
+        # Caben perfectamente dejando al menos un día de por medio
+        step = len(pares) / n_cargas
+        return sorted([pares[min(int(round(i * step)), len(pares) - 1)] for i in range(n_cargas)])
+    else:
+        # Se llenan todos los días alternados (pares) y el resto se reparte en los impares
+        faltantes = n_cargas - len(pares)
+        step = len(impares) / faltantes
+        extra = [impares[min(int(round(i * step)), len(impares) - 1)] for i in range(faltantes)]
+        return sorted(pares + extra)
 
 # --- BARRA LATERAL ---
 with st.sidebar:
@@ -206,26 +237,32 @@ st.subheader("1. Cuotas Asignadas y Parámetros")
 
 # --- INTERFAZ DE EDICIÓN ---
 if tipo_plantilla == "PEMEX":
-    st.info("👉 **Haz clic en el '0.00 L' de la columna 'Litros Totales (Mes)' para escribir la cantidad.** O usa el Llenado Rápido aquí abajo.")
-    
-    df_base = extraer_vehiculos_pemex(wb_temp)
-    
-    # LLENADO RÁPIDO
-    with st.expander("⚡ Llenado Rápido (Opcional)", expanded=False):
-        col_qf1, col_qf2, col_qf3 = st.columns([2, 2, 1])
-        litros_moto = col_qf1.number_input("Litros para todas las Motos", value=80.0, step=10.0)
-        litros_camion = col_qf2.number_input("Litros para Camionetas/Autos", value=240.0, step=10.0)
-        if col_qf3.button("Aplicar a todos"):
-            for idx, row in df_base.iterrows():
-                if "MOTOCICLETA" in str(row["tipo"]).upper():
-                    df_base.at[idx, "total_litros"] = litros_moto
-                else:
-                    df_base.at[idx, "total_litros"] = litros_camion
+    if "df_vehiculos" not in st.session_state or st.session_state.get("plantilla_id") != (uploaded_file.name if uploaded_file else plantilla_detectada):
+        st.session_state.df_vehiculos = extraer_vehiculos_pemex(wb_temp)
+        st.session_state.plantilla_id = uploaded_file.name if uploaded_file else plantilla_detectada
+
+    # --- NUEVO BLOQUE: REPARTO AUTOMÁTICO DESDE UN TOTAL ---
+    with st.container(border=True):
+        st.markdown("#### 🎯 Reparto Automático del Total a Distribuir")
+        col_tot1, col_tot2 = st.columns([2, 1])
+        bolsa_litros = col_tot1.number_input(
+            "Escribe el Total de Litros a Repartir entre los vehículos activos:",
+            min_value=0.0,
+            value=0.0,
+            step=50.0,
+            format="%.2f"
+        )
+        col_tot2.write("")
+        col_tot2.write("")
+        if col_tot2.button("⚡ Distribuir Automáticamente", use_container_width=True):
+            st.session_state.df_vehiculos = repartir_bolsa_global(st.session_state.df_vehiculos, bolsa_litros)
             st.rerun()
+
+    st.caption("También puedes ajustar manualmente cualquier celda en la tabla de abajo o marcar/desmarcar vehículos:")
 
     # TABLA EDITABLE
     df_edit = st.data_editor(
-        df_base,
+        st.session_state.df_vehiculos,
         column_config={
             "placa": st.column_config.TextColumn("Placa Actual", disabled=True),
             "tipo": st.column_config.TextColumn("Marca y Tipo", disabled=True),
@@ -241,16 +278,14 @@ if tipo_plantilla == "PEMEX":
             "combustible": st.column_config.SelectboxColumn("Combustible", options=["MAGNA","PREMIUM","DIESEL"]),
             "hoja": st.column_config.TextColumn("Hoja Excel", disabled=True),
         },
-        use_container_width=True, hide_index=True
+        use_container_width=True, hide_index=True, key="editor_pemex"
     )
+    # Sincronizar cambios manuales hechos en la tabla
+    st.session_state.df_vehiculos = df_edit
+
     c1, c2 = st.columns(2)
     c1.metric("Vehículos Activos", int(df_edit["activo"].sum()))
     c2.metric("Total Litros a Repartir", f"{df_edit[df_edit['activo']]['total_litros'].sum():,.2f} L")
-
-else: # BITACORA
-    st.caption("Marca **Generar** para incluir. Si el modo es `LITROS`, el 'Tope Día' se interpreta como la capacidad máxima por carga.")
-    # (Se omite lógica de BITACORA para mantener el enfoque en PEMEX)
-    pass
 
 # --- VISTA PREVIA ---
 st.markdown("---")
@@ -261,13 +296,10 @@ if tipo_plantilla == "PEMEX":
     for _, r in df_edit.iterrows():
         if not r.get("activo") or r["total_litros"] <= 0: continue
         
-        # 1. Calculamos cuántas cargas son
         cargas = balancear_litros(r["total_litros"], r["max_litros_carga"])
-        # 2. Asignamos fechas alternadas
         fechas_asignadas = asignar_fechas_alternadas(fechas_disponibles, len(cargas))
         
-        # Para la vista previa, mostramos las fechas y los litros
-        desglose_str = " | ".join([f"{f.strftime('%d/%b')}: {c:.1f}L" for f, c in zip(fechas_asignadas, cargas)])
+        desglose_str = " | ".join([f"{f.strftime('%d/%b')} ({NOMBRES_DIAS[f.weekday()][:3]}): {c:.2f}L" for f, c in zip(fechas_asignadas, cargas)])
         
         preview.append({
             "Placa": r["placa"], "Tipo": r["tipo"],
@@ -275,7 +307,7 @@ if tipo_plantilla == "PEMEX":
             "Fechas y Litros Asignados (Alternados)": desglose_str,
         })
     if preview: st.dataframe(pd.DataFrame(preview), use_container_width=True, hide_index=True)
-    else: st.info("Escribe la cantidad de litros en la tabla de arriba para ver la distribución.")
+    else: st.info("Escribe el total de litros arriba y presiona 'Distribuir Automáticamente', o edita la tabla.")
 
 # --- ESCRITURA ---
 def escribir_pemex(ws, datos, fechas, litros):

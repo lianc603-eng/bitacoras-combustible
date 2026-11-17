@@ -17,8 +17,7 @@ RUTAS_PLANTILLA_LOCAL = [
 ]
 plantilla_detectada = next((r for r in RUTAS_PLANTILLA_LOCAL if os.path.exists(r)), None)
 
-# --- CATÁLOGO BASE (Formato BITÁCORA con dinero y litros) ---
-# Nota: "tope_diario" aquí representa los litros máximos si el modo es LITROS
+# --- CATÁLOGO BASE (Formato BITÁCORA) ---
 VEHICULOS_DEFAULT = [
     {"direccion": "MEDIO AMBIENTE", "placa": "DKR456B",   "tipo": "JIMNY GLX TA, 5 PUERTAS 2025", "combustible": "PREMIUM", "importe_total": 5000.00, "tope_diario": 800.0,  "modo_carga": "DINERO", "anio": "2025", "lleva_odometro": True,  "activo": True},
     {"direccion": "MEDIO AMBIENTE", "placa": "DFT-565-C", "tipo": "JETTA",                           "combustible": "MAGNA",   "importe_total": 5300.00, "tope_diario": 41.0,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
@@ -62,12 +61,9 @@ def extraer_info_hoja(ws):
 
 def obtener_max_litros(tipo_str):
     tipo_upper = str(tipo_str).upper()
-    if "MOTOCICLETA" in tipo_upper:
-        return 8.33
-    elif "JETTA" in tipo_upper or "VOLKSWAGEN" in tipo_upper:
-        return 41.0
-    elif "RAM" in tipo_upper or "CAMIONETA" in tipo_upper:
-        return 83.36
+    if "MOTOCICLETA" in tipo_upper: return 8.33
+    elif "JETTA" in tipo_upper or "VOLKSWAGEN" in tipo_upper: return 41.0
+    elif "RAM" in tipo_upper or "CAMIONETA" in tipo_upper: return 83.36
     return 15.0
 
 def extraer_vehiculos_pemex(wb):
@@ -79,7 +75,7 @@ def extraer_vehiculos_pemex(wb):
         vehiculos.append({
             "hoja": sname, "placa": sname, "serie": info["serie"], "tipo": info["tipo"],
             "anio": str(info["anio"]) if info["anio"] else "", "combustible": "MAGNA",
-            "total_litros": 50.0, "max_litros_carga": max_litros, "lleva_odometro": False, "activo": True,
+            "total_litros": 0.0, "max_litros_carga": max_litros, "lleva_odometro": False, "activo": True,
         })
     return vehiculos
 
@@ -96,7 +92,7 @@ def encontrar_filas_datos_pemex(ws):
         v = ws.cell(row=r, column=1).value
         if v and "17 TOTAL" in str(v).upper():
             fila_total = r; break
-    fila_fin = (fila_total - 1) if fila_total else fila_ini + 25
+    fila_fin = (fila_total - 1) if fila_total else fila_ini + 30
     return fila_ini, fila_fin
 
 # --- FUNCIONES BALANCEO ---
@@ -125,27 +121,42 @@ def balancear_importes(total, max_day):
     loads[-1] = round(loads[-1] + (int_total - sum(loads)) + cents, 2)
     return loads
 
-def balancear_litros(total_litros, max_litros):
-    n_cargas = max(1, math.ceil(total_litros / max_litros))
-    if n_cargas > 11: n_cargas = 11
+def balancear_litros(total_litros, max_litros, dias_disponibles):
+    if total_litros <= 0: return []
+    
+    # 1. Cargas mínimas para no pasarse del tope
+    min_cargas = math.ceil(total_litros / max_litros)
+    
+    # 2. El sistema intentará darle una carga por cada día disponible (hasta el límite lógico de litros)
+    # Esto obliga a las camionetas a tener más cargas distribuidas en el mes.
+    n_cargas = max(min_cargas, min(dias_disponibles, math.ceil(total_litros)))
+    
     step = 10 if max_litros >= 40 else (5 if max_litros >= 15 else 1)
+    total_int = int(total_litros)
+    cents = round(total_litros - total_int, 2)
+    
+    # Buscar combinaciones exactas que sumen el total sin pasarse del tope
     for cand_high in range(int(max_litros), max(int(total_litros / n_cargas) - 1, step - 1), -step):
         cand_low = cand_high - step
         if cand_low <= 0: continue
-        diff = total_litros - n_cargas * cand_low
-        if diff >= 0 and abs(diff / step - round(diff / step)) < 0.001:
-            k = round(diff / step)
+        
+        diff = total_int - n_cargas * cand_low
+        if diff >= 0 and diff % step == 0:
+            k = diff // step
             if 0 <= k <= n_cargas:
-                highs = [cand_high]*k; lows = [cand_low]*(n_cargas-k)
-                alt = []
+                highs = [cand_high] * k
+                lows = [cand_low] * (n_cargas - k)
+                alternated = []
                 while highs or lows:
-                    if highs: alt.append(highs.pop(0))
-                    if lows:  alt.append(lows.pop(0))
-                rem = round(total_litros - sum(alt), 2)
-                alt[-1] = round(alt[-1] + rem, 2)
-                return alt
+                    if highs: alternated.append(highs.pop(0))
+                    if lows: alternated.append(lows.pop(0))
+                
+                alternated[-1] = round(alternated[-1] + cents, 2)
+                return alternated
+
+    # Si no se encuentra combinación perfecta, se divide exacto
     base = round(total_litros / n_cargas, 2)
-    loads = [base]*(n_cargas - 1)
+    loads = [base] * (n_cargas - 1)
     loads.append(round(total_litros - sum(loads), 2))
     return loads
 
@@ -176,7 +187,7 @@ with st.sidebar:
     dias_inhabiles = st.multiselect("Excluir:", options=opciones_dias)
     fechas_excluidas = {op.split(" ")[0] for op in dias_inhabiles}
     fechas_disponibles = [d for d in fechas_teoricas if d.strftime("%Y-%m-%d") not in fechas_excluidas]
-    st.info(f"📅 **{len(fechas_disponibles)} fechas activas**")
+    st.info(f"📅 **{len(fechas_disponibles)} fechas activas** para distribuir cargas")
 
     st.markdown("---")
     st.header("📝 Textos del Formato")
@@ -204,7 +215,7 @@ st.subheader("1. Cuotas Asignadas y Parámetros")
 
 # --- INTERFAZ DE EDICIÓN ---
 if tipo_plantilla == "PEMEX":
-    st.caption("El formato PEMEX **solo usa Litros**. Escribe el total de litros y el sistema lo dividirá respetando la capacidad máxima por carga.")
+    st.caption("Escribe el total de litros que le tocan a cada vehículo en el mes. El sistema los repartirá automáticamente a lo largo de los días disponibles, respetando el tope máximo por carga.")
     df_base = pd.DataFrame(extraer_vehiculos_pemex(wb_temp))
     
     df_edit = st.data_editor(
@@ -215,7 +226,7 @@ if tipo_plantilla == "PEMEX":
             "placa": st.column_config.TextColumn("Placa", disabled=True),
             "tipo": st.column_config.TextColumn("Marca y Tipo", disabled=True),
             "total_litros": st.column_config.NumberColumn("Litros Totales (Mes)", format="%.2f L", min_value=0.0),
-            "max_litros_carga": st.column_config.NumberColumn("Tope x Carga (L)", format="%.2f L", min_value=1.0),
+            "max_litros_carga": st.column_config.NumberColumn("Tope Máx (L)", format="%.2f L", min_value=1.0),
             "combustible": st.column_config.SelectboxColumn("Combustible", options=["MAGNA","PREMIUM","DIESEL"]),
         },
         use_container_width=True, hide_index=True
@@ -225,7 +236,7 @@ if tipo_plantilla == "PEMEX":
     c2.metric("Total Litros a Repartir", f"{df_edit[df_edit['activo']]['total_litros'].sum():,.2f} L")
 
 else: # BITACORA
-    st.caption("Marca **Generar** para incluir. Si el modo es `LITROS`, el 'Tope Día' se interpreta como la capacidad máxima de litros por carga.")
+    st.caption("Marca **Generar** para incluir. Si el modo es `LITROS`, el 'Tope Día' se interpreta como la capacidad máxima por carga.")
     df_edit = st.data_editor(
         pd.DataFrame(VEHICULOS_DEFAULT),
         column_config={
@@ -252,17 +263,15 @@ st.subheader("2. Vista Previa")
 if tipo_plantilla == "PEMEX":
     preview = []
     for _, r in df_edit.iterrows():
-        if not r.get("activo"): continue
-        fila_ini, fila_fin = encontrar_filas_datos_pemex(wb_temp[r["hoja"]])
-        if fila_ini is None: continue
-        n_filas = fila_fin - fila_ini + 1
-        # Distribuir litros respetando el tope
-        max_real = max(r["max_litros_carga"], r["total_litros"] / n_filas)
-        cargas = balancear_litros(r["total_litros"], max_real)[:n_filas]
+        if not r.get("activo") or r["total_litros"] <= 0: continue
+        
+        # Aquí pasamos la cantidad de fechas disponibles a la función de balanceo
+        cargas = balancear_litros(r["total_litros"], r["max_litros_carga"], len(fechas_disponibles))
+        
         preview.append({
-            "Hoja": r["hoja"], "Placa": r["placa"],
+            "Hoja": r["hoja"], "Placa": r["placa"], "Tipo": r["tipo"],
             "Cargas": len(cargas), "Total L": f"{sum(cargas):.2f}",
-            "Desglose de Litros": " + ".join(f"{c:.1f}L" for c in cargas),
+            "Desglose de Litros": " + ".join(f"{c:.2f}L" for c in cargas),
         })
     if preview: st.dataframe(pd.DataFrame(preview), use_container_width=True, hide_index=True)
 
@@ -273,7 +282,7 @@ else:
         modo = r.get("modo_carga") or "DINERO"
         precio = PRECIOS.get(r["combustible"], 23.99)
         if modo == "LITROS":
-            litros = balancear_litros(r["importe_total"]/precio, r["tope_diario"])
+            litros = balancear_litros(r["importe_total"]/precio, r["tope_diario"], len(fechas_disponibles))
             importes = [round(l*precio,2) for l in litros]
         else:
             importes = balancear_importes(r["importe_total"], r["tope_diario"])
@@ -281,7 +290,7 @@ else:
         preview.append({
             "Vehículo": r["tipo"], "Placa": r["placa"], "Modo": modo,
             "Cargas": len(importes),
-            "Desglose": " + ".join(f"{l:.1f}L=${i:,.0f}" for l,i in zip(litros,importes)),
+            "Desglose": " + ".join(f"{l:.2f}L=${i:,.0f}" for l,i in zip(litros,importes)),
         })
     if preview: st.dataframe(pd.DataFrame(preview), use_container_width=True, hide_index=True)
 
@@ -319,7 +328,7 @@ def escribir_pemex(ws, datos, fechas, litros):
     for i in range(n):
         r = fila_ini + i
         ws.cell(row=r, column=1).value = fechas[i].strftime("%Y-%m-%d")
-        ws.cell(row=r, column=5).value = round(float(litros[i]), 2) # <--- AQUI SE PONEN LOS LITROS
+        ws.cell(row=r, column=5).value = round(float(litros[i]), 2)
         ws.cell(row=r, column=5).number_format = '0.00'
         ws.cell(row=r, column=7).value = "N/F" if km is None else km
         ws.cell(row=r, column=4).value = datos.get("combustible", "MAGNA")
@@ -344,12 +353,10 @@ if st.button("🚀 Generar Libro Excel"):
 
     if tipo_plantilla == "PEMEX":
         for _, row in df_edit.iterrows():
-            if not row.get("activo"): continue
+            if not row.get("activo") or row["total_litros"] <= 0: continue
             ws = wb[row["hoja"]]
-            fila_ini, fila_fin = encontrar_filas_datos_pemex(ws)
-            n_filas = fila_fin - fila_ini + 1
-            max_real = max(row["max_litros_carga"], row["total_litros"] / n_filas)
-            cargas = balancear_litros(row["total_litros"], max_real)[:n_filas]
+            
+            cargas = balancear_litros(row["total_litros"], row["max_litros_carga"], len(fechas_disponibles))
             if escribir_pemex(ws, row.to_dict(), fechas_disponibles, cargas):
                 generados += 1
     else:
@@ -359,7 +366,7 @@ if st.button("🚀 Generar Libro Excel"):
             modo = row.get("modo_carga") or "DINERO"
             precio = PRECIOS.get(row["combustible"], 23.99)
             if modo == "LITROS":
-                litros = balancear_litros(row["importe_total"]/precio, row["tope_diario"])
+                litros = balancear_litros(row["importe_total"]/precio, row["tope_diario"], len(fechas_disponibles))
                 importes = [round(l*precio,2) for l in litros]
             else:
                 importes = balancear_importes(row["importe_total"], row["tope_diario"])
@@ -375,7 +382,7 @@ if st.button("🚀 Generar Libro Excel"):
 
     if generados > 0:
         buffer = io.BytesIO(); wb.save(buffer); buffer.seek(0)
-        st.success(f"✅ {generados} hoja(s) generadas.")
+        st.success(f"✅ {generados} hoja(s) generadas con distribución lógica.")
         st.download_button("📥 Descargar Excel", data=buffer, file_name=f"BITACORAS_{tipo_plantilla}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
-        st.warning("No seleccionaste ningún vehículo.")
+        st.warning("No hay vehículos seleccionados o no pusiste litros totales.")

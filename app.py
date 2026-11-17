@@ -17,10 +17,32 @@ RUTAS_PLANTILLA_LOCAL = [
 ]
 plantilla_detectada = next((r for r in RUTAS_PLANTILLA_LOCAL if os.path.exists(r)), None)
 
-# --- LISTA EXACTA DE LAS 13 PLACAS ACTIVAS (VERDES) ---
-PLACAS_ACTIVAS = {
-    "85GWU7", "86GWU7", "86GWU8", "87GWU8", "DFT565C", "88GWU7", 
-    "88GWU8", "89GWU7", "89GWU8", "90GWU8", "91GWU7", "CN2633B", "93GWU7"
+# --- LISTA DE LAS 13 PLACAS ACTUALES (LAS VERDES DE TU EXCEL 2026) ---
+PLACAS_ACTIVAS = [
+    "85GWU7", "86GWU7", "86GWU8", "87GWU8", "DFT-565-C", 
+    "88GWU7", "88GWU8", "89GWU7", "89GWU8", "90GWU8", 
+    "91GWU7", "CN-2633-B", "93GWU7"
+]
+
+# --- TRADUCTOR DE PLACAS VIEJAS A NUEVAS (Basado en tu imagen) ---
+MAPEO_PLACAS = {
+    "85GWU7": "85GWU7",
+    "86GWU7": "86GWU7",
+    "43GMP6": "86GWU8",  # Antes 43GMP6
+    "87GWU8": "87GWU8",
+    "DFT-565-C": "DFT-565-C",
+    "88GWU7": "88GWU7",
+    "88GWU8": "88GWU8",
+    "49GMP6": "89GWU7",  # Antes 49GMP6
+    "50GMP6": "89GWU8",  # Antes 50GMP6
+    "89GWU8": "89GWU8",
+    "38GMP6": "90GWU8",  # Antes 38GMP6 (DINAMO)
+    "30GMP6": "91GWU7",  # Antes 30GMP6 (HONDA) - Ajustado a 91GWU7
+    "91GWU7": "91GWU7",
+    "CN-2633-B": "CN-2633-B",
+    "32GMP6": "93GWU7",  # Antes 32GMP6
+    "93GWU7": "93GWU7",
+    "30GMY2": "30GMY2"
 }
 
 # --- CATÁLOGO BASE (Formato BITÁCORA) ---
@@ -67,24 +89,29 @@ def extraer_vehiculos_pemex(wb):
     for sname in wb.sheetnames:
         if sname.upper().endswith(" R"): continue
         
-        # Normalizamos el nombre (quitamos guiones y mayúsculas) para buscar en la lista
-        sname_clean = sname.replace("-", "").replace(" ", "").upper()
-        es_activo = sname_clean in PLACAS_ACTIVAS
+        # Buscamos si la hoja tiene una placa vieja en nuestro traductor, sino, dejamos el nombre de la hoja
+        placa_actual = MAPEO_PLACAS.get(sname, sname)
+        
+        # Revisamos si la placa actual está en la lista de los 13 verdes
+        es_activo = placa_actual in PLACAS_ACTIVAS
         
         info = extraer_info_hoja(wb[sname])
         max_litros = obtener_max_litros(info["tipo"])
         
         vehiculos.append({
-            "hoja": sname, "placa": sname, "tipo": info["tipo"],
-            "total_litros": 0.0, "max_litros_carga": max_litros, 
-            "activo": es_activo, # <--- AQUÍ SE MARCAN LOS 13
-            "combustible": "MAGNA", "serie": info["serie"], "anio": str(info["anio"])
+            "hoja": sname, 
+            "placa": placa_actual, # <--- AQUÍ SE MUESTRA LA PLACA ACTUALIZADA
+            "tipo": info["tipo"],
+            "total_litros": 0.0, 
+            "max_litros_carga": max_litros, 
+            "activo": es_activo, 
+            "combustible": "MAGNA"
         })
         
-    # Reordenamos las columnas para que se vean bien en la interfaz
+    # Reordenamos las columnas para que se vean bien
     df = pd.DataFrame(vehiculos)
     if not df.empty:
-        df = df[["hoja", "placa", "tipo", "total_litros", "max_litros_carga", "activo", "combustible"]]
+        df = df[["placa", "tipo", "total_litros", "max_litros_carga", "activo", "combustible", "hoja"]]
     return df
 
 def encontrar_filas_datos_pemex(ws):
@@ -217,19 +244,19 @@ st.subheader("1. Cuotas Asignadas y Parámetros")
 
 # --- INTERFAZ DE EDICIÓN ---
 if tipo_plantilla == "PEMEX":
-    st.caption("✅ Los 13 vehículos operativos (verdes en tu Excel) ya vienen seleccionados. Escribe los litros totales y el sistema los repartirá equitativamente entre los días del mes.")
+    st.caption("✅ Las placas se han actualizado a las de 2026. Los 13 vehículos operativos (verdes en tu Excel) ya vienen seleccionados.")
     df_base = extraer_vehiculos_pemex(wb_temp)
     
     df_edit = st.data_editor(
         df_base,
         column_config={
-            "hoja": st.column_config.TextColumn("Hoja Excel", disabled=True),
-            "placa": st.column_config.TextColumn("Placa", disabled=True),
+            "placa": st.column_config.TextColumn("Placa Actual", disabled=True),
             "tipo": st.column_config.TextColumn("Marca y Tipo", disabled=True),
             "total_litros": st.column_config.NumberColumn("Litros Totales (Mes)", format="%.2f L", min_value=0.0),
             "max_litros_carga": st.column_config.NumberColumn("Tope Máx (L)", format="%.2f L", min_value=1.0),
             "activo": st.column_config.CheckboxColumn("¿Generar?", default=True),
             "combustible": st.column_config.SelectboxColumn("Combustible", options=["MAGNA","PREMIUM","DIESEL"]),
+            "hoja": st.column_config.TextColumn("Hoja Excel", disabled=True),
         },
         use_container_width=True, hide_index=True
     )

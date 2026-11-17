@@ -17,19 +17,20 @@ RUTAS_PLANTILLA_LOCAL = [
 ]
 plantilla_detectada = next((r for r in RUTAS_PLANTILLA_LOCAL if os.path.exists(r)), None)
 
-# --- CATÁLOGO BASE (Formato BITÁCORA con dinero) ---
+# --- CATÁLOGO BASE (Formato BITÁCORA con dinero y litros) ---
+# Nota: "tope_diario" aquí representa los litros máximos si el modo es LITROS
 VEHICULOS_DEFAULT = [
     {"direccion": "MEDIO AMBIENTE", "placa": "DKR456B",   "tipo": "JIMNY GLX TA, 5 PUERTAS 2025", "combustible": "PREMIUM", "importe_total": 5000.00, "tope_diario": 800.0,  "modo_carga": "DINERO", "anio": "2025", "lleva_odometro": True,  "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "DFT-565-C", "tipo": "JETTA",                           "combustible": "MAGNA",   "importe_total": 5300.00, "tope_diario": 1000.0, "modo_carga": "DINERO", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "CN-2633-B", "tipo": "CAMIONETA (RAM)",                 "combustible": "MAGNA",   "importe_total": 7049.27, "tope_diario": 2000.0, "modo_carga": "DINERO", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "88GWU7",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 1112.75, "tope_diario": 200.0,  "modo_carga": "DINERO", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "87GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 800.00,  "tope_diario": 200.0,  "modo_carga": "DINERO", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "88GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 750.00,  "tope_diario": 200.0,  "modo_carga": "DINERO", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "90GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 700.00,  "tope_diario": 200.0,  "modo_carga": "DINERO", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "86GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 688.13,  "tope_diario": 200.0,  "modo_carga": "DINERO", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "86GWU7",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 683.46,  "tope_diario": 200.0,  "modo_carga": "DINERO", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "89GWU7",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 500.00,  "tope_diario": 200.0,  "modo_carga": "DINERO", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "89GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 500.00,  "tope_diario": 200.0,  "modo_carga": "DINERO", "anio": "",     "lleva_odometro": False, "activo": True},
+    {"direccion": "MEDIO AMBIENTE", "placa": "DFT-565-C", "tipo": "JETTA",                           "combustible": "MAGNA",   "importe_total": 5300.00, "tope_diario": 41.0,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
+    {"direccion": "MEDIO AMBIENTE", "placa": "CN-2633-B", "tipo": "CAMIONETA (RAM)",                 "combustible": "MAGNA",   "importe_total": 7049.27, "tope_diario": 83.36,  "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
+    {"direccion": "MEDIO AMBIENTE", "placa": "88GWU7",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 1112.75, "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
+    {"direccion": "MEDIO AMBIENTE", "placa": "87GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 800.00,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
+    {"direccion": "MEDIO AMBIENTE", "placa": "88GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 750.00,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
+    {"direccion": "MEDIO AMBIENTE", "placa": "90GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 700.00,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
+    {"direccion": "MEDIO AMBIENTE", "placa": "86GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 688.13,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
+    {"direccion": "MEDIO AMBIENTE", "placa": "86GWU7",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 683.46,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
+    {"direccion": "MEDIO AMBIENTE", "placa": "89GWU7",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 500.00,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
+    {"direccion": "MEDIO AMBIENTE", "placa": "89GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 500.00,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
 ]
 
 PRECIOS = {"MAGNA": 23.99, "PREMIUM": 26.95, "DIESEL": 27.00}
@@ -59,15 +60,26 @@ def extraer_info_hoja(ws):
             break
     return info
 
+def obtener_max_litros(tipo_str):
+    tipo_upper = str(tipo_str).upper()
+    if "MOTOCICLETA" in tipo_upper:
+        return 8.33
+    elif "JETTA" in tipo_upper or "VOLKSWAGEN" in tipo_upper:
+        return 41.0
+    elif "RAM" in tipo_upper or "CAMIONETA" in tipo_upper:
+        return 83.36
+    return 15.0
+
 def extraer_vehiculos_pemex(wb):
     vehiculos = []
     for sname in wb.sheetnames:
-        if sname.upper().endswith(" R"): continue # Ignorar reversos
+        if sname.upper().endswith(" R"): continue
         info = extraer_info_hoja(wb[sname])
+        max_litros = obtener_max_litros(info["tipo"])
         vehiculos.append({
             "hoja": sname, "placa": sname, "serie": info["serie"], "tipo": info["tipo"],
             "anio": str(info["anio"]) if info["anio"] else "", "combustible": "MAGNA",
-            "total_litros": 100.0, "max_litros_carga": 15.0, "lleva_odometro": False, "activo": True,
+            "total_litros": 50.0, "max_litros_carga": max_litros, "lleva_odometro": False, "activo": True,
         })
     return vehiculos
 
@@ -192,7 +204,7 @@ st.subheader("1. Cuotas Asignadas y Parámetros")
 
 # --- INTERFAZ DE EDICIÓN ---
 if tipo_plantilla == "PEMEX":
-    st.caption("El formato PEMEX **solo usa Litros**. Escoge qué vehículos van y pon los litros asignados.")
+    st.caption("El formato PEMEX **solo usa Litros**. Escribe el total de litros y el sistema lo dividirá respetando la capacidad máxima por carga.")
     df_base = pd.DataFrame(extraer_vehiculos_pemex(wb_temp))
     
     df_edit = st.data_editor(
@@ -200,10 +212,10 @@ if tipo_plantilla == "PEMEX":
         column_config={
             "hoja": st.column_config.TextColumn("Hoja Excel", disabled=True),
             "activo": st.column_config.CheckboxColumn("¿Generar?", default=True),
-            "placa": st.column_config.TextColumn("Placa"),
-            "tipo": st.column_config.TextColumn("Marca y Tipo"),
-            "total_litros": st.column_config.NumberColumn("Litros Totales", format="%.2f L"),
-            "max_litros_carga": st.column_config.NumberColumn("Máx. Litros x Carga", format="%.2f L"),
+            "placa": st.column_config.TextColumn("Placa", disabled=True),
+            "tipo": st.column_config.TextColumn("Marca y Tipo", disabled=True),
+            "total_litros": st.column_config.NumberColumn("Litros Totales (Mes)", format="%.2f L", min_value=0.0),
+            "max_litros_carga": st.column_config.NumberColumn("Tope x Carga (L)", format="%.2f L", min_value=1.0),
             "combustible": st.column_config.SelectboxColumn("Combustible", options=["MAGNA","PREMIUM","DIESEL"]),
         },
         use_container_width=True, hide_index=True
@@ -213,7 +225,7 @@ if tipo_plantilla == "PEMEX":
     c2.metric("Total Litros a Repartir", f"{df_edit[df_edit['activo']]['total_litros'].sum():,.2f} L")
 
 else: # BITACORA
-    st.caption("Marca **Generar** para incluir. Elige `DINERO` o `LITROS` en la columna Modo.")
+    st.caption("Marca **Generar** para incluir. Si el modo es `LITROS`, el 'Tope Día' se interpreta como la capacidad máxima de litros por carga.")
     df_edit = st.data_editor(
         pd.DataFrame(VEHICULOS_DEFAULT),
         column_config={
@@ -221,7 +233,7 @@ else: # BITACORA
             "modo_carga": st.column_config.SelectboxColumn("Modo", options=["DINERO","LITROS"]),
             "lleva_odometro": st.column_config.CheckboxColumn("Odómetro"),
             "importe_total": st.column_config.NumberColumn("Presupuesto ($)", format="$%.2f"),
-            "tope_diario": st.column_config.NumberColumn("Tope Día", format="%.2f"),
+            "tope_diario": st.column_config.NumberColumn("Tope / Max Litros", format="%.2f"),
             "combustible": st.column_config.SelectboxColumn("Combustible", options=["MAGNA","PREMIUM","DIESEL"]),
         },
         use_container_width=True, hide_index=True
@@ -244,6 +256,7 @@ if tipo_plantilla == "PEMEX":
         fila_ini, fila_fin = encontrar_filas_datos_pemex(wb_temp[r["hoja"]])
         if fila_ini is None: continue
         n_filas = fila_fin - fila_ini + 1
+        # Distribuir litros respetando el tope
         max_real = max(r["max_litros_carga"], r["total_litros"] / n_filas)
         cargas = balancear_litros(r["total_litros"], max_real)[:n_filas]
         preview.append({
@@ -305,14 +318,10 @@ def escribir_pemex(ws, datos, fechas, litros):
     
     for i in range(n):
         r = fila_ini + i
-        # Fecha
         ws.cell(row=r, column=1).value = fechas[i].strftime("%Y-%m-%d")
-        # Litros (Columna E)
-        ws.cell(row=r, column=5).value = round(float(litros[i]), 2)
+        ws.cell(row=r, column=5).value = round(float(litros[i]), 2) # <--- AQUI SE PONEN LOS LITROS
         ws.cell(row=r, column=5).number_format = '0.00'
-        # Odómetro (Columna G)
         ws.cell(row=r, column=7).value = "N/F" if km is None else km
-        # Combustible
         ws.cell(row=r, column=4).value = datos.get("combustible", "MAGNA")
         
         if km is not None: km += round(litros[i] * rendimiento_jimny)

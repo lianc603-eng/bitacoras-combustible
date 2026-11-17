@@ -17,19 +17,17 @@ RUTAS_PLANTILLA_LOCAL = [
 ]
 plantilla_detectada = next((r for r in RUTAS_PLANTILLA_LOCAL if os.path.exists(r)), None)
 
+# --- LISTA DE PLACAS ACTIVAS (LAS VERDES DE TU EXCEL) ---
+# Agregué las placas con y sin guiones para que el sistema las reconozca sin importar cómo vengan en el archivo
+PLACAS_ACTIVAS = [
+    "85GWU7", "86GWU7", "86GWU8", "87GWU8", "88GWU8", 
+    "89GWU7", "89GWU8", "CN2633B", "CN-2633-B", "93GWU7", 
+    "CN2632B", "CN-2632-B", "30GMY2"
+]
+
 # --- CATÁLOGO BASE (Formato BITÁCORA) ---
 VEHICULOS_DEFAULT = [
     {"direccion": "MEDIO AMBIENTE", "placa": "DKR456B",   "tipo": "JIMNY GLX TA, 5 PUERTAS 2025", "combustible": "PREMIUM", "importe_total": 5000.00, "tope_diario": 800.0,  "modo_carga": "DINERO", "anio": "2025", "lleva_odometro": True,  "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "DFT-565-C", "tipo": "JETTA",                           "combustible": "MAGNA",   "importe_total": 5300.00, "tope_diario": 41.0,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "CN-2633-B", "tipo": "CAMIONETA (RAM)",                 "combustible": "MAGNA",   "importe_total": 7049.27, "tope_diario": 83.36,  "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "88GWU7",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 1112.75, "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "87GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 800.00,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "88GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 750.00,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "90GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 700.00,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "86GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 688.13,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "86GWU7",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 683.46,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "89GWU7",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 500.00,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
-    {"direccion": "MEDIO AMBIENTE", "placa": "89GWU8",    "tipo": "MOTOCICLETA",                     "combustible": "MAGNA",   "importe_total": 500.00,  "tope_diario": 8.33,   "modo_carga": "LITROS", "anio": "",     "lleva_odometro": False, "activo": True},
 ]
 
 PRECIOS = {"MAGNA": 23.99, "PREMIUM": 26.95, "DIESEL": 27.00}
@@ -70,12 +68,22 @@ def extraer_vehiculos_pemex(wb):
     vehiculos = []
     for sname in wb.sheetnames:
         if sname.upper().endswith(" R"): continue
+        
+        # Normalizamos el nombre de la hoja para compararlo con la lista de activos
+        sname_clean = sname.replace("-", "").strip().upper()
+        activos_clean = [p.replace("-", "").strip().upper() for p in PLACAS_ACTIVAS]
+        
+        es_activo = sname_clean in activos_clean
+        
         info = extraer_info_hoja(wb[sname])
         max_litros = obtener_max_litros(info["tipo"])
+        
         vehiculos.append({
             "hoja": sname, "placa": sname, "serie": info["serie"], "tipo": info["tipo"],
             "anio": str(info["anio"]) if info["anio"] else "", "combustible": "MAGNA",
-            "total_litros": 0.0, "max_litros_carga": max_litros, "lleva_odometro": False, "activo": True,
+            "total_litros": 0.0, "max_litros_carga": max_litros, 
+            "lleva_odometro": False, 
+            "activo": es_activo # <--- AQUI SE PONEN EN VERDE (TRUE) O SE APAGAN (FALSE)
         })
     return vehiculos
 
@@ -127,7 +135,7 @@ def balancear_litros(total_litros, max_litros, dias_disponibles):
     # 1. Cargas mínimas para no pasarse del tope
     min_cargas = math.ceil(total_litros / max_litros)
     
-    # 2. El sistema intentará darle una carga por cada día disponible (hasta el límite lógico de litros)
+    # 2. El sistema intentará darle una carga por cada día disponible (hasta el límite lógico)
     # Esto obliga a las camionetas a tener más cargas distribuidas en el mes.
     n_cargas = max(min_cargas, min(dias_disponibles, math.ceil(total_litros)))
     
@@ -135,7 +143,6 @@ def balancear_litros(total_litros, max_litros, dias_disponibles):
     total_int = int(total_litros)
     cents = round(total_litros - total_int, 2)
     
-    # Buscar combinaciones exactas que sumen el total sin pasarse del tope
     for cand_high in range(int(max_litros), max(int(total_litros / n_cargas) - 1, step - 1), -step):
         cand_low = cand_high - step
         if cand_low <= 0: continue
@@ -154,7 +161,6 @@ def balancear_litros(total_litros, max_litros, dias_disponibles):
                 alternated[-1] = round(alternated[-1] + cents, 2)
                 return alternated
 
-    # Si no se encuentra combinación perfecta, se divide exacto
     base = round(total_litros / n_cargas, 2)
     loads = [base] * (n_cargas - 1)
     loads.append(round(total_litros - sum(loads), 2))
@@ -215,7 +221,7 @@ st.subheader("1. Cuotas Asignadas y Parámetros")
 
 # --- INTERFAZ DE EDICIÓN ---
 if tipo_plantilla == "PEMEX":
-    st.caption("Escribe el total de litros que le tocan a cada vehículo en el mes. El sistema los repartirá automáticamente a lo largo de los días disponibles, respetando el tope máximo por carga.")
+    st.caption("✅ Los vehículos operativos (verdes en tu Excel) ya vienen seleccionados por defecto. Solo escribe los litros totales y el sistema los repartirá equitativamente entre los días del mes.")
     df_base = pd.DataFrame(extraer_vehiculos_pemex(wb_temp))
     
     df_edit = st.data_editor(
@@ -232,7 +238,7 @@ if tipo_plantilla == "PEMEX":
         use_container_width=True, hide_index=True
     )
     c1, c2 = st.columns(2)
-    c1.metric("Vehículos Seleccionados", int(df_edit["activo"].sum()))
+    c1.metric("Vehículos Activos", int(df_edit["activo"].sum()))
     c2.metric("Total Litros a Repartir", f"{df_edit[df_edit['activo']]['total_litros'].sum():,.2f} L")
 
 else: # BITACORA
@@ -265,7 +271,7 @@ if tipo_plantilla == "PEMEX":
     for _, r in df_edit.iterrows():
         if not r.get("activo") or r["total_litros"] <= 0: continue
         
-        # Aquí pasamos la cantidad de fechas disponibles a la función de balanceo
+        # Distribución equitativa en base a los días disponibles
         cargas = balancear_litros(r["total_litros"], r["max_litros_carga"], len(fechas_disponibles))
         
         preview.append({

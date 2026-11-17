@@ -17,13 +17,11 @@ RUTAS_PLANTILLA_LOCAL = [
 ]
 plantilla_detectada = next((r for r in RUTAS_PLANTILLA_LOCAL if os.path.exists(r)), None)
 
-# --- LISTA DE PLACAS ACTIVAS (LAS VERDES DE TU EXCEL) ---
-# Agregué las placas con y sin guiones para que el sistema las reconozca sin importar cómo vengan en el archivo
-PLACAS_ACTIVAS = [
-    "85GWU7", "86GWU7", "86GWU8", "87GWU8", "88GWU8", 
-    "89GWU7", "89GWU8", "CN2633B", "CN-2633-B", "93GWU7", 
-    "CN2632B", "CN-2632-B", "30GMY2"
-]
+# --- LISTA EXACTA DE LAS 13 PLACAS ACTIVAS (VERDES) ---
+PLACAS_ACTIVAS = {
+    "85GWU7", "86GWU7", "86GWU8", "87GWU8", "DFT565C", "88GWU7", 
+    "88GWU8", "89GWU7", "89GWU8", "90GWU8", "91GWU7", "CN2633B", "93GWU7"
+}
 
 # --- CATÁLOGO BASE (Formato BITÁCORA) ---
 VEHICULOS_DEFAULT = [
@@ -69,23 +67,25 @@ def extraer_vehiculos_pemex(wb):
     for sname in wb.sheetnames:
         if sname.upper().endswith(" R"): continue
         
-        # Normalizamos el nombre de la hoja para compararlo con la lista de activos
-        sname_clean = sname.replace("-", "").strip().upper()
-        activos_clean = [p.replace("-", "").strip().upper() for p in PLACAS_ACTIVAS]
-        
-        es_activo = sname_clean in activos_clean
+        # Normalizamos el nombre (quitamos guiones y mayúsculas) para buscar en la lista
+        sname_clean = sname.replace("-", "").replace(" ", "").upper()
+        es_activo = sname_clean in PLACAS_ACTIVAS
         
         info = extraer_info_hoja(wb[sname])
         max_litros = obtener_max_litros(info["tipo"])
         
         vehiculos.append({
-            "hoja": sname, "placa": sname, "serie": info["serie"], "tipo": info["tipo"],
-            "anio": str(info["anio"]) if info["anio"] else "", "combustible": "MAGNA",
+            "hoja": sname, "placa": sname, "tipo": info["tipo"],
             "total_litros": 0.0, "max_litros_carga": max_litros, 
-            "lleva_odometro": False, 
-            "activo": es_activo # <--- AQUI SE PONEN EN VERDE (TRUE) O SE APAGAN (FALSE)
+            "activo": es_activo, # <--- AQUÍ SE MARCAN LOS 13
+            "combustible": "MAGNA", "serie": info["serie"], "anio": str(info["anio"])
         })
-    return vehiculos
+        
+    # Reordenamos las columnas para que se vean bien en la interfaz
+    df = pd.DataFrame(vehiculos)
+    if not df.empty:
+        df = df[["hoja", "placa", "tipo", "total_litros", "max_litros_carga", "activo", "combustible"]]
+    return df
 
 def encontrar_filas_datos_pemex(ws):
     fila_header = None
@@ -132,11 +132,7 @@ def balancear_importes(total, max_day):
 def balancear_litros(total_litros, max_litros, dias_disponibles):
     if total_litros <= 0: return []
     
-    # 1. Cargas mínimas para no pasarse del tope
     min_cargas = math.ceil(total_litros / max_litros)
-    
-    # 2. El sistema intentará darle una carga por cada día disponible (hasta el límite lógico)
-    # Esto obliga a las camionetas a tener más cargas distribuidas en el mes.
     n_cargas = max(min_cargas, min(dias_disponibles, math.ceil(total_litros)))
     
     step = 10 if max_litros >= 40 else (5 if max_litros >= 15 else 1)
@@ -221,18 +217,18 @@ st.subheader("1. Cuotas Asignadas y Parámetros")
 
 # --- INTERFAZ DE EDICIÓN ---
 if tipo_plantilla == "PEMEX":
-    st.caption("✅ Los vehículos operativos (verdes en tu Excel) ya vienen seleccionados por defecto. Solo escribe los litros totales y el sistema los repartirá equitativamente entre los días del mes.")
-    df_base = pd.DataFrame(extraer_vehiculos_pemex(wb_temp))
+    st.caption("✅ Los 13 vehículos operativos (verdes en tu Excel) ya vienen seleccionados. Escribe los litros totales y el sistema los repartirá equitativamente entre los días del mes.")
+    df_base = extraer_vehiculos_pemex(wb_temp)
     
     df_edit = st.data_editor(
         df_base,
         column_config={
             "hoja": st.column_config.TextColumn("Hoja Excel", disabled=True),
-            "activo": st.column_config.CheckboxColumn("¿Generar?", default=True),
             "placa": st.column_config.TextColumn("Placa", disabled=True),
             "tipo": st.column_config.TextColumn("Marca y Tipo", disabled=True),
             "total_litros": st.column_config.NumberColumn("Litros Totales (Mes)", format="%.2f L", min_value=0.0),
             "max_litros_carga": st.column_config.NumberColumn("Tope Máx (L)", format="%.2f L", min_value=1.0),
+            "activo": st.column_config.CheckboxColumn("¿Generar?", default=True),
             "combustible": st.column_config.SelectboxColumn("Combustible", options=["MAGNA","PREMIUM","DIESEL"]),
         },
         use_container_width=True, hide_index=True
@@ -271,11 +267,10 @@ if tipo_plantilla == "PEMEX":
     for _, r in df_edit.iterrows():
         if not r.get("activo") or r["total_litros"] <= 0: continue
         
-        # Distribución equitativa en base a los días disponibles
         cargas = balancear_litros(r["total_litros"], r["max_litros_carga"], len(fechas_disponibles))
         
         preview.append({
-            "Hoja": r["hoja"], "Placa": r["placa"], "Tipo": r["tipo"],
+            "Placa": r["placa"], "Tipo": r["tipo"],
             "Cargas": len(cargas), "Total L": f"{sum(cargas):.2f}",
             "Desglose de Litros": " + ".join(f"{c:.2f}L" for c in cargas),
         })

@@ -101,26 +101,71 @@ def encontrar_filas_datos_pemex(ws):
     return fila_ini, fila_fin
 
 # --- FUNCIONES DE REPARTO Y BALANCEO ---
-def repartir_bolsa_global(df, bolsa_total):
-    """Reparte una bolsa total de litros proporcionalmente según la capacidad del tanque de cada vehículo activo."""
+def repartir_bolsa_global(df, bolsa_total, tope_mensual_camioneta=260.0, tope_mensual_auto=200.0):
+    """
+    Reparte la bolsa total de forma equilibrada usando pesos suavizados (raíz cuadrada)
+    y respetando un tope máximo mensual para que ningún vehículo acapare demasiado.
+    """
     df_res = df.copy()
     activos_mask = df_res["activo"] == True
     if not activos_mask.any() or bolsa_total <= 0:
         df_res["total_litros"] = 0.0
         return df_res
 
-    # Usamos el Tope Máx (capacidad de carga) como peso para repartir proporcionalmente
-    # Así las camionetas reciben más litros que las motos de forma natural
-    pesos = df_res.loc[activos_mask, "max_litros_carga"]
-    suma_pesos = pesos.sum()
+    # 1. Definir el tope mensual máximo permitido por vehículo según su tipo
+    topes_mensuales = pd.Series(index=df_res[activos_mask].index, dtype=float)
+    for idx, row in df_res[activos_mask].iterrows():
+        tipo_u = str(row["tipo"]).upper()
+        if "RAM" in tipo_u or "CAMIONETA" in tipo_u:
+            topes_mensuales[idx] = tope_mensual_camioneta
+        elif "JETTA" in tipo_u or "VOLKSWAGEN" in tipo_u or "AUTOMOV" in tipo_u:
+            topes_mensuales[idx] = tope_mensual_auto
+        else:
+            topes_mensuales[idx] = 9999.0 
 
-    asignaciones = (pesos / suma_pesos) * bolsa_total
+    # 2. Pesos suavizados (raíz cuadrada de la capacidad del tanque)
+    pesos = df_res.loc[activos_mask, "max_litros_carga"].apply(math.sqrt)
+
+    asignaciones = pd.Series(0.0, index=df_res[activos_mask].index)
+    remanente = float(bolsa_total)
+    disponibles = asignaciones.index.tolist()
+
+    # 3. Reparto iterativo respetando topes mensuales
+    while remanente > 0.01 and disponibles:
+        suma_pesos = pesos.loc[disponibles].sum()
+        if suma_pesos <= 0:
+            break
+
+        nuevos_disponibles = []
+        repartido_en_ronda = 0.0
+
+        for idx in disponibles:
+            cuota = (pesos[idx] / suma_pesos) * remanente
+            espacio = topes_mensuales[idx] - asignaciones[idx]
+
+            if cuota >= espacio:
+                asignaciones[idx] = topes_mensuales[idx]
+                repartido_en_ronda += espacio
+            else:
+                asignaciones[idx] += cuota
+                repartido_en_ronda += cuota
+                nuevos_disponibles.append(idx)
+
+        remanente = round(remanente - repartido_en_ronda, 4)
+        disponibles = nuevos_disponibles
+
+    # Si sobró algo porque todos llegaron a su tope, se reparte parejo entre todos los activos
+    if remanente > 0.01:
+        extra = remanente / len(asignaciones)
+        asignaciones += extra
+
     asignaciones = asignaciones.round(2)
 
-    # Ajuste de centavos en el último vehículo activo para que la suma sea exacta
+    # Ajuste final de centavos para cuadrar exactamente con la bolsa_total
     diferencia = round(bolsa_total - asignaciones.sum(), 2)
-    ultimo_idx = asignaciones.index[-1]
-    asignaciones.loc[ultimo_idx] = round(asignaciones.loc[ultimo_idx] + diferencia, 2)
+    motos_idx = [i for i in asignaciones.index if "MOTOCICLETA" in str(df_res.loc[i, "tipo"]).upper()]
+    idx_ajuste = motos_idx[-1] if motos_idx else asignaciones.index[-1]
+    asignaciones.loc[idx_ajuste] = round(asignaciones.loc[idx_ajuste] + diferencia, 2)
 
     df_res["total_litros"] = 0.0
     df_res.loc[activos_mask, "total_litros"] = asignaciones
@@ -166,17 +211,13 @@ def asignar_fechas_alternadas(fechas_disponibles, n_cargas):
     if n_cargas >= len(fechas_disponibles):
         return fechas_disponibles[:n_cargas]
 
-    # Separar las fechas en dos grupos: índices pares (0, 2, 4...) e impares (1, 3, 5...)
-    # Como los días autorizados son L, M, J, V, tomar índices pares agarra Lunes y Jueves (nunca seguidos)
     pares = fechas_disponibles[0::2]
     impares = fechas_disponibles[1::2]
 
     if n_cargas <= len(pares):
-        # Caben perfectamente dejando al menos un día de por medio
         step = len(pares) / n_cargas
         return sorted([pares[min(int(round(i * step)), len(pares) - 1)] for i in range(n_cargas)])
     else:
-        # Se llenan todos los días alternados (pares) y el resto se reparte en los impares
         faltantes = n_cargas - len(pares)
         step = len(impares) / faltantes
         extra = [impares[min(int(round(i * step)), len(impares) - 1)] for i in range(faltantes)]
@@ -241,21 +282,41 @@ if tipo_plantilla == "PEMEX":
         st.session_state.df_vehiculos = extraer_vehiculos_pemex(wb_temp)
         st.session_state.plantilla_id = uploaded_file.name if uploaded_file else plantilla_detectada
 
-    # --- NUEVO BLOQUE: REPARTO AUTOMÁTICO DESDE UN TOTAL ---
+    # --- REPARTO AUTOMÁTICO CON TOPE PARA CAMIONETA ---
     with st.container(border=True):
         st.markdown("#### 🎯 Reparto Automático del Total a Distribuir")
-        col_tot1, col_tot2 = st.columns([2, 1])
+        col_tot1, col_tot2, col_tot3, col_tot4 = st.columns([2, 1.5, 1.5, 1.5])
+        
         bolsa_litros = col_tot1.number_input(
-            "Escribe el Total de Litros a Repartir entre los vehículos activos:",
+            "Total de Litros a Repartir:",
             min_value=0.0,
-            value=0.0,
+            value=1256.0,
             step=50.0,
             format="%.2f"
         )
-        col_tot2.write("")
-        col_tot2.write("")
-        if col_tot2.button("⚡ Distribuir Automáticamente", use_container_width=True):
-            st.session_state.df_vehiculos = repartir_bolsa_global(st.session_state.df_vehiculos, bolsa_litros)
+        tope_cam = col_tot2.number_input(
+            "Tope Máx Camioneta (Mes):",
+            min_value=50.0,
+            value=260.0,
+            step=20.0,
+            format="%.2f"
+        )
+        tope_auto = col_tot3.number_input(
+            "Tope Máx Auto/Jetta (Mes):",
+            min_value=50.0,
+            value=200.0,
+            step=20.0,
+            format="%.2f"
+        )
+        col_tot4.write("")
+        col_tot4.write("")
+        if col_tot4.button("⚡ Distribuir", use_container_width=True):
+            st.session_state.df_vehiculos = repartir_bolsa_global(
+                st.session_state.df_vehiculos, 
+                bolsa_litros,
+                tope_mensual_camioneta=tope_cam,
+                tope_mensual_auto=tope_auto
+            )
             st.rerun()
 
     st.caption("También puedes ajustar manualmente cualquier celda en la tabla de abajo o marcar/desmarcar vehículos:")
@@ -280,7 +341,6 @@ if tipo_plantilla == "PEMEX":
         },
         use_container_width=True, hide_index=True, key="editor_pemex"
     )
-    # Sincronizar cambios manuales hechos en la tabla
     st.session_state.df_vehiculos = df_edit
 
     c1, c2 = st.columns(2)
@@ -307,7 +367,7 @@ if tipo_plantilla == "PEMEX":
             "Fechas y Litros Asignados (Alternados)": desglose_str,
         })
     if preview: st.dataframe(pd.DataFrame(preview), use_container_width=True, hide_index=True)
-    else: st.info("Escribe el total de litros arriba y presiona 'Distribuir Automáticamente', o edita la tabla.")
+    else: st.info("Escribe el total de litros arriba y presiona 'Distribuir', o edita la tabla.")
 
 # --- ESCRITURA ---
 def escribir_pemex(ws, datos, fechas, litros):

@@ -24,23 +24,23 @@ PLACAS_ACTIVAS = [
     "91GWU7", "CN-2633-B", "93GWU7"
 ]
 
-# --- TRADUCTOR DE PLACAS VIEJAS A NUEVAS (Basado en tu imagen) ---
+# --- TRADUCTOR DE PLACAS VIEJAS A NUEVAS ---
 MAPEO_PLACAS = {
     "85GWU7": "85GWU7",
     "86GWU7": "86GWU7",
-    "43GMP6": "86GWU8",  # Antes 43GMP6
+    "43GMP6": "86GWU8",
     "87GWU8": "87GWU8",
     "DFT-565-C": "DFT-565-C",
     "88GWU7": "88GWU7",
     "88GWU8": "88GWU8",
-    "49GMP6": "89GWU7",  # Antes 49GMP6
-    "50GMP6": "89GWU8",  # Antes 50GMP6
+    "49GMP6": "89GWU7",
+    "50GMP6": "89GWU8",
     "89GWU8": "89GWU8",
-    "38GMP6": "90GWU8",  # Antes 38GMP6 (DINAMO)
-    "30GMP6": "91GWU7",  # Antes 30GMP6 (HONDA) - Ajustado a 91GWU7
+    "38GMP6": "90GWU8",
+    "30GMP6": "91GWU7",
     "91GWU7": "91GWU7",
     "CN-2633-B": "CN-2633-B",
-    "32GMP6": "93GWU7",  # Antes 32GMP6
+    "32GMP6": "93GWU7",
     "93GWU7": "93GWU7",
     "30GMY2": "30GMY2"
 }
@@ -89,10 +89,7 @@ def extraer_vehiculos_pemex(wb):
     for sname in wb.sheetnames:
         if sname.upper().endswith(" R"): continue
         
-        # Buscamos si la hoja tiene una placa vieja en nuestro traductor, sino, dejamos el nombre de la hoja
         placa_actual = MAPEO_PLACAS.get(sname, sname)
-        
-        # Revisamos si la placa actual está en la lista de los 13 verdes
         es_activo = placa_actual in PLACAS_ACTIVAS
         
         info = extraer_info_hoja(wb[sname])
@@ -100,7 +97,7 @@ def extraer_vehiculos_pemex(wb):
         
         vehiculos.append({
             "hoja": sname, 
-            "placa": placa_actual, # <--- AQUÍ SE MUESTRA LA PLACA ACTUALIZADA
+            "placa": placa_actual,
             "tipo": info["tipo"],
             "total_litros": 0.0, 
             "max_litros_carga": max_litros, 
@@ -108,7 +105,6 @@ def extraer_vehiculos_pemex(wb):
             "combustible": "MAGNA"
         })
         
-    # Reordenamos las columnas para que se vean bien
     df = pd.DataFrame(vehiculos)
     if not df.empty:
         df = df[["placa", "tipo", "total_litros", "max_litros_carga", "activo", "combustible", "hoja"]]
@@ -158,7 +154,6 @@ def balancear_importes(total, max_day):
 
 def balancear_litros(total_litros, max_litros, dias_disponibles):
     if total_litros <= 0: return []
-    
     min_cargas = math.ceil(total_litros / max_litros)
     n_cargas = max(min_cargas, min(dias_disponibles, math.ceil(total_litros)))
     
@@ -169,7 +164,6 @@ def balancear_litros(total_litros, max_litros, dias_disponibles):
     for cand_high in range(int(max_litros), max(int(total_litros / n_cargas) - 1, step - 1), -step):
         cand_low = cand_high - step
         if cand_low <= 0: continue
-        
         diff = total_int - n_cargas * cand_low
         if diff >= 0 and diff % step == 0:
             k = diff // step
@@ -180,7 +174,6 @@ def balancear_litros(total_litros, max_litros, dias_disponibles):
                 while highs or lows:
                     if highs: alternated.append(highs.pop(0))
                     if lows: alternated.append(lows.pop(0))
-                
                 alternated[-1] = round(alternated[-1] + cents, 2)
                 return alternated
 
@@ -216,7 +209,7 @@ with st.sidebar:
     dias_inhabiles = st.multiselect("Excluir:", options=opciones_dias)
     fechas_excluidas = {op.split(" ")[0] for op in dias_inhabiles}
     fechas_disponibles = [d for d in fechas_teoricas if d.strftime("%Y-%m-%d") not in fechas_excluidas]
-    st.info(f"📅 **{len(fechas_disponibles)} fechas activas** para distribuir cargas")
+    st.info(f"📅 **{len(fechas_disponibles)} fechas activas**")
 
     st.markdown("---")
     st.header("📝 Textos del Formato")
@@ -244,16 +237,24 @@ st.subheader("1. Cuotas Asignadas y Parámetros")
 
 # --- INTERFAZ DE EDICIÓN ---
 if tipo_plantilla == "PEMEX":
-    st.caption("✅ Las placas se han actualizado a las de 2026. Los 13 vehículos operativos (verdes en tu Excel) ya vienen seleccionados.")
+    st.info("👉 **Haz clic directamente sobre las celdas de la columna 'Litros Totales (Mes)' para escribir la cantidad que deseas.**")
+    
     df_base = extraer_vehiculos_pemex(wb_temp)
     
+    # El editor de datos permite escribir directamente en la celda
     df_edit = st.data_editor(
         df_base,
         column_config={
             "placa": st.column_config.TextColumn("Placa Actual", disabled=True),
             "tipo": st.column_config.TextColumn("Marca y Tipo", disabled=True),
-            "total_litros": st.column_config.NumberColumn("Litros Totales (Mes)", format="%.2f L", min_value=0.0),
-            "max_litros_carga": st.column_config.NumberColumn("Tope Máx (L)", format="%.2f L", min_value=1.0),
+            "total_litros": st.column_config.NumberColumn(
+                "Litros Totales (Mes)", 
+                help="Haz clic y escribe los litros asignados a este vehículo.",
+                format="%.2f L", 
+                min_value=0.0,
+                step=10.0
+            ),
+            "max_litros_carga": st.column_config.NumberColumn("Tope Máx (L)", format="%.2f L", disabled=True),
             "activo": st.column_config.CheckboxColumn("¿Generar?", default=True),
             "combustible": st.column_config.SelectboxColumn("Combustible", options=["MAGNA","PREMIUM","DIESEL"]),
             "hoja": st.column_config.TextColumn("Hoja Excel", disabled=True),
@@ -278,12 +279,6 @@ else: # BITACORA
         },
         use_container_width=True, hide_index=True
     )
-    tot_m = df_edit[df_edit["activo"] & (df_edit["combustible"]=="MAGNA")]["importe_total"].sum()
-    tot_p = df_edit[df_edit["activo"] & (df_edit["combustible"]=="PREMIUM")]["importe_total"].sum()
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Magna", f"${tot_m:,.2f}")
-    c2.metric("Premium", f"${tot_p:,.2f}")
-    c3.metric("Total", f"${tot_m+tot_p:,.2f}")
 
 # --- VISTA PREVIA ---
 st.markdown("---")
@@ -294,6 +289,7 @@ if tipo_plantilla == "PEMEX":
     for _, r in df_edit.iterrows():
         if not r.get("activo") or r["total_litros"] <= 0: continue
         
+        # Distribución automática
         cargas = balancear_litros(r["total_litros"], r["max_litros_carga"], len(fechas_disponibles))
         
         preview.append({
@@ -302,6 +298,7 @@ if tipo_plantilla == "PEMEX":
             "Desglose de Litros": " + ".join(f"{c:.2f}L" for c in cargas),
         })
     if preview: st.dataframe(pd.DataFrame(preview), use_container_width=True, hide_index=True)
+    else: st.info("Escribe la cantidad de litros en la tabla de arriba para ver la distribución.")
 
 else:
     preview = []
